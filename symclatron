@@ -1108,7 +1108,7 @@ def classify(
     start_time = time.time()
 
     # Set up logging with date and time in the log file name
-    log_file = f"{save_dir}/symclatron_classification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_file = f"{save_dir}_symclatron_classification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     logger = setup_logging(log_file)
 
     logger.info("Starting symclatron classifier")
@@ -1169,7 +1169,7 @@ def classify(
     split_hits_all_models_for_3_models()
 
     logger.info("Running classification models")
-    classify_genomes(logger)
+    classify_genomes()
 
     logger.info("Computing feature contributions")
     compute_feature_contribution()
@@ -1183,7 +1183,7 @@ def classify(
 
     # Apply neural network for final classification
     logger.info("Applying neural network for final classification")
-    apply_neural_network(logger)
+    apply_neural_network()
 
     # Generate summary report
     logger.info("Generating classification summary report")
