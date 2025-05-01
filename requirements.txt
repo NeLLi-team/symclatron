@@ -1,5 +1,3 @@
-List of packages in environment: "/pscratch/sd/j/jvillada/software/miniforge/envs/symclatron2"
-
 _libgcc_mutex=0.1=conda_forge
 _openmp_mutex=4.5=2_gnu
 _py-xgboost-mutex=2.0=cpu_0
