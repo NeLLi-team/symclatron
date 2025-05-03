@@ -17,3 +17,16 @@ shap = "*"
 scikit-learn = "*"
 tensorflow = "*"
 joblib = "*"
+
+[tasks]
+# Task to run the classify command
+classify = "./symclatron classify"
+
+# Task to run the setup command
+setup = "./symclatron setup"
+
+# Task to run the classify command with test genomes
+classify-test = "timestamp=$(date +%Y%m%d_%H%M%S) && ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron_$timestamp"
+
+# Task to run the classify command with test genomes, keeping temporary files
+classify-test-keep-tmp = "timestamp=$(date +%Y%m%d_%H%M%S) && ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron_$timestamp --no-deltmp"

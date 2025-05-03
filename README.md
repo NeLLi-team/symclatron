@@ -27,22 +27,56 @@ mamba create -c conda-forge -c bioconda --name symclatron --file requirements.tx
 
 1. Install Pixi by following the instructions at [https://pixi.sh/](https://pixi.sh/)
 
-2. The repository includes a `pixi.toml` file with all necessary dependencies. To create the environment, run:
+2. If you have any active virtual environments (like conda, venv, etc.), deactivate them first:
+
+```{bash}
+# For conda/mamba environments
+conda deactivate
+
+# For venv environments
+deactivate
+```
+
+3. The repository includes a `pixi.toml` file with all necessary dependencies. To create the environment, run:
 
 ```{bash}
 pixi install
 ```
 
-3. To run symclatron commands with pixi:
+4. To run symclatron commands with pixi:
 
 ```{bash}
+# Run the setup command
 pixi run -- ./symclatron setup
+
+# Get help for the classify command
 pixi run -- ./symclatron classify --help
+```
+
+5. Alternatively, you can use the predefined pixi tasks:
+
+```{bash}
+# Run the setup command
+pixi run setup
+
+# Run the classify command (default options)
+pixi run classify
+
+# Run the classify command with test genomes
+pixi run classify-test
+
+# Run the classify command with test genomes, keeping temporary files
+pixi run classify-test-keep-tmp
+
+# For custom options, use the direct command
+pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir custom_output_dir
 ```
 
 ### 💽  Setup data (run only once)
 
 **Run inside the `symclatron/` folder:**
+
+#### Option 1: Using the setup command
 
 With conda/mamba:
 ```{shell}
@@ -54,6 +88,16 @@ With pixi:
 ```{shell}
 pixi run -- ./symclatron setup
 ```
+
+#### Option 2: Manual extraction
+
+If the setup command fails, you can manually extract the data.tar.gz file:
+
+```{shell}
+tar -xzf data.tar.gz
+```
+
+This will create a `data` directory with all the necessary files, including test genomes in the `data/test_genomes/` directory.
 
 _______
 
@@ -114,7 +158,17 @@ With conda/mamba:
 
 With pixi:
 ```{shell}
+# Using the direct command
 pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron
+
+# Or using the predefined task with test genomes
+pixi run classify-test
+
+# Or using the predefined task with test genomes, keeping temporary files
+pixi run classify-test-keep-tmp
+
+# For custom options, use the direct command
+pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir custom_output_dir
 ```
 
 ### 🕺🏻 Results
@@ -162,7 +216,14 @@ With conda/mamba:
 
 With pixi:
 ```bash
+# Using the direct command
 pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron --no-deltmp
+
+# Or using the predefined task with test genomes, keeping temporary files
+pixi run classify-test-keep-tmp
+
+# For custom options, use the direct command
+pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir custom_output_dir --no-deltmp
 ```
 
 This will preserve all intermediate files in the `tmp/` directory within your output directory.
