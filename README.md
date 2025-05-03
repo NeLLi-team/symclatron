@@ -13,31 +13,65 @@ cd symclatron/
 chmod u+x symclatron
 ```
 
+### Option 1: Using Conda/Mamba
+
 Create `conda` environment and install requirements:
 
 ```{bash}
 mamba create -c conda-forge -c bioconda --name symclatron --file requirements.txt
 ```
 
+### Option 2: Using Pixi
+
+[Pixi](https://pixi.sh/) is a fast, multi-platform package manager that can be used as an alternative to conda/mamba.
+
+1. Install Pixi by following the instructions at [https://pixi.sh/](https://pixi.sh/)
+
+2. The repository includes a `pixi.toml` file with all necessary dependencies. To create the environment, run:
+
+```{bash}
+pixi install
+```
+
+3. To run symclatron commands with pixi:
+
+```{bash}
+pixi run -- ./symclatron setup
+pixi run -- ./symclatron classify --help
+```
+
 ### 💽  Setup data (run only once)
 
 **Run inside the `symclatron/` folder:**
 
+With conda/mamba:
 ```{shell}
 mamba activate symclatron
+./symclatron setup
 ```
 
+With pixi:
 ```{shell}
-./symclatron setup
+pixi run -- ./symclatron setup
 ```
 
 _______
 
 ## 🚀 Example run
 
+### Option 1: Using Conda/Mamba
+
 ```{shell}
 mamba activate symclatron
 ```
+
+```{shell}
+cd symclatron/
+```
+
+### Option 2: Using Pixi
+
+No activation is needed with pixi. Just make sure you're in the symclatron directory:
 
 ```{shell}
 cd symclatron/
@@ -49,9 +83,18 @@ cd symclatron/
 
 ### To get help
 
+With conda/mamba:
 ```{bash}
 ./symclatron classify --help
+```
 
+With pixi:
+```{bash}
+pixi run -- ./symclatron classify --help
+```
+
+Output:
+```
 # Usage: symclatron classify [OPTIONS]
 #
 # ╭─ Options ───────────────────────────────────────────────────────────────────────────────────╮
@@ -60,13 +103,18 @@ cd symclatron/
 # │ --deltmp        --no-deltmp          [default: deltmp]                                      │
 # │ --help                               Show this message and exit.                            │
 # ╰─────────────────────────────────────────────────────────────────────────────────────────────╯
-
 ```
 
 **Run inside the `symclatron/` folder:**
 
+With conda/mamba:
 ```{shell}
 ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron
+```
+
+With pixi:
+```{shell}
+pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron
 ```
 
 ### 🕺🏻 Results
@@ -107,8 +155,14 @@ apptainer run \
 
 By default, the temporary files created during the classification process are deleted after the analysis is complete. To keep these files (useful for debugging or advanced analysis), use the `--no-deltmp` flag:
 
+With conda/mamba:
 ```bash
 ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron --no-deltmp
+```
+
+With pixi:
+```bash
+pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron --no-deltmp
 ```
 
 This will preserve all intermediate files in the `tmp/` directory within your output directory.
