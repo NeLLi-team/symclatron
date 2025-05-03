@@ -1,0 +1,19 @@
+[project]
+name = "symclatron"
+version = "0.1.0"
+description = "Symbiont classifier"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.12.*"
+typer = "*"
+pandas = "*"
+numpy = "*"
+tqdm = "*"
+hmmer = "*"
+xgboost = "*"
+shap = "*"
+scikit-learn = "*"
+tensorflow = "*"
+joblib = "*"
