@@ -171,6 +171,13 @@ pixi run classify-test-keep-tmp
 pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir custom_output_dir
 ```
 
+**Running from a different directory:**
+
+With conda/mamba:
+```{shell}
+/path/to/symclatron/symclatron classify --genome-dir /path/to/genome/files/ --save-dir /path/to/output/directory
+```
+
 ### 🕺🏻 Results
 
 The classification results are saved in the specified output directory. The main output files are:
@@ -180,6 +187,8 @@ The classification results are saved in the specified output directory. The main
    - `completeness_UNI56` - Completeness metric based on universal marker genes
    - `confidence` - Overall confidence score for the classification
    - `classification` - Final classification label (Free-living, Symbiont;Host-associated, or Symbiont;Obligate-intracellular)
+
+2. `classification_summary.txt` - A summary report of the classification results with statistics
 
 ### 🐳 symclatron container
 
@@ -191,16 +200,13 @@ The classification results are saved in the specified output directory. The main
 apptainer pull \
         docker://docker.io/jvillada/symclatron:latest
 
-ABSOLUTE_PATH_TO_DIR_WITH_FAA_FILES=""
-ABSOLUTE_PATH_TO_OUTPUT_DIR="" # this directory must not exist! symclatron will create it.
-
 apptainer run \
         --pwd /usr/src/symclatron \
         docker://docker.io/jvillada/symclatron:latest \
         symclatron \
         classify \
-        --genome-dir ${ABSOLUTE_PATH_TO_DIR_WITH_FAA_FILES} \
-        --save-dir ${ABSOLUTE_PATH_TO_OUTPUT_DIR}
+        --genome-dir /path/to/genome/files/faa \
+        --save-dir /path/to/output/directory
 ```
 
 ## 🛠️ Advanced Options
