@@ -20,6 +20,9 @@ import sys
 from typing import Optional, List, Dict, Union, Any
 from datetime import datetime
 
+# Define the script directory as a global variable for consistent path resolution
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
 """
 symclatron: Symbiont Classifier
 
@@ -64,7 +67,7 @@ def init_message_classify() -> None:
 
 def extract_data() -> None:
     typer.secho("Extracting required data", fg=typer.colors.BRIGHT_GREEN)
-    data_tar = tarfile.open("data.tar.gz")
+    data_tar = tarfile.open(os.path.join(script_dir, "data.tar.gz"))
     data_tar.extractall(".")
     data_tar.close()
     typer.secho("[OK] Data extracted\n", fg=typer.colors.BRIGHT_MAGENTA)
@@ -215,7 +218,7 @@ def run_hmmsearch(ncpus: int) -> None:
         "--incE",
         str(1000),
         # "-Z", str(61295632),
-        f"{data_folder_path}/symclatron_2384_union_features.hmm",
+        os.path.join(script_dir, "data/symclatron_2384_union_features.hmm"),
         f"{tmp_dir_path}/merged_genomes.faa",
     ]
 
@@ -228,7 +231,7 @@ def run_hmmsearch(ncpus: int) -> None:
 
 
 def run_hmmsearch_uni56(ncpus: int) -> None:
-    hmmfile = "data/uni56.hmm"
+    hmmfile = os.path.join(script_dir, "data/uni56.hmm")
     uni56_tblout = Path(tmp_dir_path) / "uni56_hmmsearch.tblout"
 
     cmd_search = [
@@ -255,13 +258,14 @@ def save_list_of_models() -> None:
         "Saving list of models for each hmm model file", fg=typer.colors.BRIGHT_GREEN
     )
 
-    list_of_hmm_models_files = ["data/symclatron_2384_union_features.hmm"] + [
-        "data/uni56.hmm"
+    hmm_files = [
+        os.path.join(script_dir, "data/symclatron_2384_union_features.hmm"),
+        os.path.join(script_dir, "data/uni56.hmm")
     ]
 
-    for hmmfile in list_of_hmm_models_files:
+    for hmmfile in hmm_files:
         models_list_file_path = (
-            tmp_dir_path + "/" + hmmfile.split("/")[-1].split(".")[0] + "_models.list"
+            tmp_dir_path + "/" + os.path.basename(hmmfile).split(".")[0] + "_models.list"
         )
         with open(models_list_file_path, "w") as output_models_list_file:
             with open(hmmfile, "r") as my_hmmfile:
@@ -407,10 +411,9 @@ def split_hits_all_models_for_3_models() -> None:
     df = pd.read_csv(path_to_df, sep="\t")
 
     # -------------------------------- df_1: symcla
-    # get the list from the json file "symclatron/data/features_names_list_symcla.json"
-    df_1_symcla_list_of_columns = json.load(
-        open(Path(data_folder_path / "features_names_list_symcla.json"), "r")
-    )
+    # get the list from the json file using relative path to script
+    symcla_json_path = os.path.join(script_dir, "data/features_names_list_symcla.json")
+    df_1_symcla_list_of_columns = json.load(open(symcla_json_path, "r"))
 
     df_1_symcla = df[["taxon_oid"] + df_1_symcla_list_of_columns]
     df_1_symcla.to_csv(
@@ -418,10 +421,9 @@ def split_hits_all_models_for_3_models() -> None:
     )
 
     # -------------------------------- df_2: symreg
-    # get the list from the json file "symclatron/data/features_names_list_symreg.json"
-    df_2_symreg_list_of_columns = json.load(
-        open(Path(data_folder_path / "features_names_list_symreg.json"), "r")
-    )
+    # get the list from the json file using relative path to script
+    symreg_json_path = os.path.join(script_dir, "data/features_names_list_symreg.json")
+    df_2_symreg_list_of_columns = json.load(open(symreg_json_path, "r"))
 
     df_2_symreg = df[["taxon_oid"] + df_2_symreg_list_of_columns]
     df_2_symreg.to_csv(
@@ -429,10 +431,9 @@ def split_hits_all_models_for_3_models() -> None:
     )
 
     # -------------------------------- df_3: hostcla
-    # get the list from the json file "symclatron/data/features_names_list_hostcla.json"
-    df_3_hostcla_list_of_columns = json.load(
-        open(Path(data_folder_path / "features_names_list_hostcla.json"), "r")
-    )
+    # get the list from the json file using relative path to script
+    hostcla_json_path = os.path.join(script_dir, "data/features_names_list_hostcla.json")
+    df_3_hostcla_list_of_columns = json.load(open(hostcla_json_path, "r"))
 
     df_3_hostcla = df[["taxon_oid"] + df_3_hostcla_list_of_columns]
     df_3_hostcla.to_csv(
@@ -489,7 +490,10 @@ def classify_genomes() -> None:
         else:
             xgb_model = xgb.XGBClassifier()
 
-        xgb_model.load_model(f"{data_folder_path}/ml_models/{each_model}.json")
+        # Use path relative to the script's location for loading models
+        model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 f"data/ml_models/{each_model}.json")
+        xgb_model.load_model(model_path)
 
         # Initialize predictions_df for all model types
         predictions_df = pd.DataFrame({"taxon_oid": taxon_oid_list})
@@ -541,8 +545,8 @@ def compute_feature_contribution() -> None:
     # Only calculate for symreg model
     each_model = "symreg"
 
-    # Load the model - fix the path to include ml_models subdirectory
-    reg_model_file = Path(data_folder_path / "ml_models" / f"{each_model}.json")
+    # Load the model with relative path to script location
+    reg_model_file = os.path.join(script_dir, f"data/ml_models/{each_model}.json")
     with open(reg_model_file, "r") as json_file:
         model_dict = json.load(json_file)
 
@@ -620,15 +624,15 @@ def calculate_weighted_distances() -> None:
 
     # Process both models: symreg and symcla
     for model_type in ["REG", "CLA"]:
-        # Load the feature importance file
+        # Load the feature importance file with relative path
         feat_imp = pd.read_csv(
-            f"{data_folder_path}/arrays/feature_importance_{model_type}.tsv",
+            os.path.join(script_dir, f"data/arrays/feature_importance_{model_type}.tsv"),
             sep="\t"
         )
 
-        # Load the training set
+        # Load the training set with relative path
         train_df = pd.read_csv(
-            f"{data_folder_path}/arrays/array_{model_type}.tsv",
+            os.path.join(script_dir, f"data/arrays/array_{model_type}.tsv"),
             sep="\t"
         )
 
@@ -711,10 +715,12 @@ def apply_neural_network() -> None:
         )
         exit(1)
 
-    # Load the model and scaler
+    # Load the model and scaler using absolute paths based on script location
     try:
-        loaded_model = load_model(f"{data_folder_path}/ml_models/NN_model_big.keras")
-        loaded_scaler = joblib.load(f"{data_folder_path}/ml_models/NN_scaler_big.pkl")
+        nn_model_path = os.path.join(script_dir, "data/ml_models/NN_model_big.keras")
+        nn_scaler_path = os.path.join(script_dir, "data/ml_models/NN_scaler_big.pkl")
+        loaded_model = load_model(nn_model_path)
+        loaded_scaler = joblib.load(nn_scaler_path)
     except (OSError, IOError) as e:
         typer.secho(
             f"Error loading neural network model or scaler: {str(e)}",
