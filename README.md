@@ -5,7 +5,7 @@
 Clone the `symclatron` repository:
 
 ```{shell}
-git clone https://github.com/juanvillada/symclatron.git
+git clone https://github.com/NeLLi-team/symclatron.git
 ```
 
 ```{bash}
