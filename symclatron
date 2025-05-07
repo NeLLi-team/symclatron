@@ -19,6 +19,9 @@ from tqdm import tqdm
 import sys
 from typing import Optional, List, Dict, Union, Any
 from datetime import datetime
+import urllib.request
+import os
+import shutil
 
 # Define the script directory as a global variable for consistent path resolution
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -66,11 +69,58 @@ def init_message_classify() -> None:
 
 
 def extract_data() -> None:
-    typer.secho("Extracting required data", fg=typer.colors.BRIGHT_GREEN)
-    data_tar = tarfile.open(os.path.join(script_dir, "data.tar.gz"))
-    data_tar.extractall(".")
-    data_tar.close()
-    typer.secho("[OK] Data extracted\n", fg=typer.colors.BRIGHT_MAGENTA)
+    typer.secho("Setting up symclatron data", fg=typer.colors.BRIGHT_GREEN)
+
+    # URL for the data archive
+    data_url = "https://portal.nersc.gov/cfs/nelli/symclatron_db.tar.gz"
+
+    # Check if data directory already exists
+    if os.path.isdir(os.path.join(script_dir, "data")):
+        typer.secho("Data directory already exists. Using existing data.", fg=typer.colors.BRIGHT_YELLOW)
+        return
+
+    # Create a temporary file path
+    tmp_download_path = os.path.join(script_dir, "symclatron_db.tar.gz")
+
+    try:
+        # Download the file
+        typer.secho(f"Downloading data from {data_url}...", fg=typer.colors.BRIGHT_GREEN)
+        urllib.request.urlretrieve(data_url, tmp_download_path)
+
+        # Extract the archive
+        typer.secho("Extracting data...", fg=typer.colors.BRIGHT_GREEN)
+        data_tar = tarfile.open(tmp_download_path)
+        data_tar.extractall(script_dir)
+        data_tar.close()
+
+        # Move the data directory to the correct location
+        if os.path.isdir(os.path.join(script_dir, "symclatron_db", "data")):
+            # If the data is inside a subdirectory, move it up
+            if not os.path.isdir(os.path.join(script_dir, "data")):
+                shutil.move(os.path.join(script_dir, "symclatron_db", "data"), script_dir)
+
+            # Clean up the symclatron_db directory if it exists
+            if os.path.isdir(os.path.join(script_dir, "symclatron_db")):
+                shutil.rmtree(os.path.join(script_dir, "symclatron_db"))
+
+        # Remove the downloaded archive
+        if os.path.exists(tmp_download_path):
+            os.remove(tmp_download_path)
+
+        typer.secho("[OK] Data setup complete\n", fg=typer.colors.BRIGHT_MAGENTA)
+
+    except Exception as e:
+        typer.secho(
+            f"[Error] Failed to download or extract data: {str(e)}",
+            fg=typer.colors.BRIGHT_RED,
+            err=True,
+        )
+        # If the download fails, let the user know they can manually download and extract
+        typer.secho(
+            f"\nPlease download the data manually from {data_url} and extract it to {os.path.join(script_dir, 'data')}",
+            fg=typer.colors.BRIGHT_YELLOW,
+        )
+        exit(1)
 
 
 def create_output_dir(logger) -> None:
@@ -1113,17 +1163,27 @@ def classify(
     """
     start_time = time.time()
 
+    global savedir
+    savedir = save_dir
+
+    # Create output directory first to ensure we have a place for logs
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+
     # Set up logging with date and time in the log file name
-    log_file = f"{save_dir}_symclatron_classification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    # Check if current directory is writable, if not use output directory for logs
+    script_dir_writable = os.access(os.path.dirname(os.path.abspath(__file__)), os.W_OK)
+    if script_dir_writable:
+        log_file = f"{save_dir}_symclatron_classification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    else:
+        log_file = f"{savedir}/symclatron_classification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
     logger = setup_logging(log_file)
 
+    # Rest of the function remains unchanged
     logger.info("Starting symclatron classifier")
     greetings()
     init_message_classify()
-
-    global savedir
-    savedir = save_dir
-    create_output_dir(logger)
 
     script_path = Path(__file__)
     script_dir = script_path.parent

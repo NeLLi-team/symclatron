@@ -192,21 +192,54 @@ The classification results are saved in the specified output directory. The main
 
 ### 🐳 symclatron container
 
-#### Apptainer
-
-⚠️⚠️⚠️ Note: The paths to the input genomes and output directory must be absolute. ⚠️⚠️⚠️
+#### Docker/Podman
 
 ```bash
-apptainer pull \
-        docker://docker.io/jvillada/symclatron:latest
+# Pull the image
+docker pull docker.io/jvillada/symclatron:latest
+# or with Podman
+podman pull docker.io/jvillada/symclatron:latest
 
+# Run the container
+docker run --rm -v /path/to/input/genomes:/input -v /path/to/output/dir:/output \
+    docker.io/jvillada/symclatron:latest \
+    pixi run -- ./symclatron classify --genome-dir /input --save-dir /output
+
+# or with Podman
+podman run --rm -v /path/to/input/genomes:/input -v /path/to/output/dir:/output \
+    docker.io/jvillada/symclatron:latest \
+    pixi run -- ./symclatron classify --genome-dir /input --save-dir /output
+```
+
+#### Apptainer/Singularity
+
+```bash
+# Pull the image
+apptainer pull docker://docker.io/jvillada/symclatron:latest
+
+# Run the container
+# Note: Make sure to specify --pwd to work in the correct directory
 apptainer run \
-        --pwd /usr/src/symclatron \
-        docker://docker.io/jvillada/symclatron:latest \
-        symclatron \
-        classify \
-        --genome-dir /path/to/genome/files/faa \
-        --save-dir /path/to/output/directory
+    --pwd /usr/src/symclatron \
+    -B /path/to/input/genomes:/input \
+    -B /path/to/output/dir:/output \
+    symclatron_latest.sif \
+    pixi run -- ./symclatron classify --genome-dir /input --save-dir /output
+
+# Or if you want to use the predefined tasks
+apptainer run \
+    --pwd /usr/src/symclatron \
+    -B /path/to/test/output/dir:/output \
+    symclatron_latest.sif \
+    pixi run classify --save-dir /output
+
+# For running directly without pulling first
+apptainer run \
+    --pwd /usr/src/symclatron \
+    -B /path/to/input/genomes:/input \
+    -B /path/to/output/dir:/output \
+    docker://docker.io/jvillada/symclatron:latest \
+    pixi run -- ./symclatron classify --genome-dir /input --save-dir /output
 ```
 
 ## 🛠️ Advanced Options
