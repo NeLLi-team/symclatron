@@ -1,15 +1,16 @@
-FROM condaforge/mambaforge:24.3.0-0
+FROM ghcr.io/prefix-dev/pixi:0.46.0
 
 LABEL maintainer="jvillada@lbl.gov"
 LABEL version="v0.1"
 LABEL software="symclatron: symbiont classifier"
 
+ADD pixi.toml /usr/src/symclatron/pixi.toml
 ADD symclatron /usr/src/symclatron/
-ADD data /usr/src/symclatron/data
-ADD requirements.txt /usr/src/symclatron/requirements.txt
+ADD data.tar.gz /usr/src/symclatron/data.tar.gz
 
-RUN mamba install -c bioconda --file /usr/src/symclatron/requirements.txt -y
-RUN mamba clean --all
+WORKDIR /usr/src/symclatron/
+RUN pixi install
+RUN pixi run setup
 
 ENV PATH=${PATH}:/usr/src/symclatron
 WORKDIR /usr/src/symclatron/
