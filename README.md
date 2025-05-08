@@ -79,12 +79,14 @@ pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir cus
 #### Option 1: Using the setup command
 
 With conda/mamba:
+
 ```{shell}
 mamba activate symclatron
 ./symclatron setup
 ```
 
 With pixi:
+
 ```{shell}
 pixi run -- ./symclatron setup
 ```
@@ -128,16 +130,19 @@ cd symclatron/
 ### To get help
 
 With conda/mamba:
+
 ```{bash}
 ./symclatron classify --help
 ```
 
 With pixi:
+
 ```{bash}
 pixi run -- ./symclatron classify --help
 ```
 
 Output:
+
 ```
 # Usage: symclatron classify [OPTIONS]
 #
@@ -152,11 +157,13 @@ Output:
 **Run inside the `symclatron/` folder:**
 
 With conda/mamba:
+
 ```{shell}
 ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron
 ```
 
 With pixi:
+
 ```{shell}
 # Using the direct command
 pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron
@@ -174,6 +181,7 @@ pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir cus
 **Running from a different directory:**
 
 With conda/mamba:
+
 ```{shell}
 /path/to/symclatron/symclatron classify --genome-dir /path/to/genome/files/ --save-dir /path/to/output/directory
 ```
@@ -192,54 +200,31 @@ The classification results are saved in the specified output directory. The main
 
 ### 🐳 symclatron container
 
-#### Docker/Podman
-
-```bash
-# Pull the image
-docker pull docker.io/jvillada/symclatron:latest
-# or with Podman
-podman pull docker.io/jvillada/symclatron:latest
-
-# Run the container
-docker run --rm -v /path/to/input/genomes:/input -v /path/to/output/dir:/output \
-    docker.io/jvillada/symclatron:latest \
-    pixi run -- ./symclatron classify --genome-dir /input --save-dir /output
-
-# or with Podman
-podman run --rm -v /path/to/input/genomes:/input -v /path/to/output/dir:/output \
-    docker.io/jvillada/symclatron:latest \
-    pixi run -- ./symclatron classify --genome-dir /input --save-dir /output
-```
-
 #### Apptainer/Singularity
 
 ```bash
-# Pull the image
-apptainer pull docker://docker.io/jvillada/symclatron:latest
+apptainer pull \
+        docker://docker.io/jvillada/symclatron:latest
 
-# Run the container
-# Note: Make sure to specify --pwd to work in the correct directory
+# Test it with:
+my_test_dir=$PWD/test_output_symclatron
+mkdir -p $my_test_dir
 apptainer run \
     --pwd /usr/src/symclatron \
-    -B /path/to/input/genomes:/input \
-    -B /path/to/output/dir:/output \
-    symclatron_latest.sif \
-    pixi run -- ./symclatron classify --genome-dir /input --save-dir /output
-
-# Or if you want to use the predefined tasks
-apptainer run \
-    --pwd /usr/src/symclatron \
-    -B /path/to/test/output/dir:/output \
-    symclatron_latest.sif \
-    pixi run classify --save-dir /output
-
-# For running directly without pulling first
-apptainer run \
-    --pwd /usr/src/symclatron \
-    -B /path/to/input/genomes:/input \
-    -B /path/to/output/dir:/output \
+    --bind $my_test_dir:/usr/src/symclatron/output \
     docker://docker.io/jvillada/symclatron:latest \
-    pixi run -- ./symclatron classify --genome-dir /input --save-dir /output
+    pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir output
+
+# Run it with:
+my_genomes_dir="/path/to/genome/faa_files/"
+my_output_dir="/path/to/output/directory/"
+mkdir -p $my_output_dir
+apptainer run \
+    --pwd /usr/src/symclatron \
+    --bind $my_genomes_dir:/usr/src/symclatron/input_genomes \
+    --bind $my_output_dir:/usr/src/symclatron/output \
+    docker://docker.io/jvillada/symclatron:latest \
+    pixi run -- ./symclatron classify --genome-dir input_genomes/ --save-dir output
 ```
 
 ## 🛠️ Advanced Options
@@ -249,11 +234,13 @@ apptainer run \
 By default, the temporary files created during the classification process are deleted after the analysis is complete. To keep these files (useful for debugging or advanced analysis), use the `--no-deltmp` flag:
 
 With conda/mamba:
+
 ```bash
 ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron --no-deltmp
 ```
 
 With pixi:
+
 ```bash
 # Using the direct command
 pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron --no-deltmp
