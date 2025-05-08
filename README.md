@@ -202,11 +202,16 @@ The classification results are saved in the specified output directory. The main
 
 #### Apptainer/Singularity
 
+Pull the latest `symclatron` container from Docker Hub:
+
 ```bash
 apptainer pull \
         docker://docker.io/jvillada/symclatron:latest
+```
 
-# Test it with:
+Test `symclatron` with testing data:
+
+```bash
 my_test_dir=$PWD/test_output_symclatron
 mkdir -p $my_test_dir
 apptainer run \
@@ -214,8 +219,11 @@ apptainer run \
     --bind $my_test_dir:/usr/src/symclatron/output \
     docker://docker.io/jvillada/symclatron:latest \
     pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir output
+```
 
-# Run it with:
+Run `symclatron` with your own genomes:
+
+```bash
 my_genomes_dir="/path/to/genome/faa_files/"
 my_output_dir="/path/to/output/directory/"
 mkdir -p $my_output_dir
