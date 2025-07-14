@@ -198,6 +198,11 @@ The classification results are saved in the specified output directory. The main
 
 2. `classification_summary.txt` - A summary report of the classification results with statistics
 
+
+### ⌛️ Runtime
+`symclatron` works efficiently on any modern computer (even consumer-level laptops). Our (over)estimates are about 2 minutes per genome. For example, a recent batch run with 306 genomes lasted for ~162 minutes (1.9 min/genome)
+
+
 ### 🐳 symclatron container
 
 #### Apptainer/Singularity
