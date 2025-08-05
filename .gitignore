@@ -1,3 +1,6 @@
 data/
 test_output*
 .pixi
+RELEASE_NOTES_v*.md
+release_check.sh
+CHANGELOG.md

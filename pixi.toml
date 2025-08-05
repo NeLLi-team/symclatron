@@ -1,7 +1,8 @@
 [project]
 name = "symclatron"
-version = "0.1.0"
-description = "Symbiont classifier"
+version = "0.3.1"
+description = "Symbiont classifier - Machine Learning-based Classification of Microbial Symbiotic Lifestyles"
+authors = ["Juan C. Villada <jvillada@lbl.gov>"]
 channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64"]
 
@@ -17,16 +18,31 @@ shap = "*"
 scikit-learn = "*"
 tensorflow = "*"
 joblib = "*"
+time = "*"
 
 [tasks]
-# Task to run the classify command
-classify = "./symclatron classify"
-
-# Task to run the setup command
+# Setup symclatron data (run once)
 setup = "./symclatron setup"
 
-# Task to run the classify command with test genomes
-classify-test = "timestamp=$(date +%Y%m%d_%H%M%S) && ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron_$timestamp"
+# Show symclatron information
+info = "./symclatron info"
 
-# Task to run the classify command with test genomes, keeping temporary files
-classify-test-keep-tmp = "timestamp=$(date +%Y%m%d_%H%M%S) && ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron_$timestamp --no-deltmp"
+# Show help
+help = "./symclatron --help"
+
+# Run classification with default settings
+classify = "./symclatron classify"
+
+# Run quick test with provided genomes
+test = "./symclatron test"
+
+# Run test keeping temporary files
+test-keep-tmp = "./symclatron test --keep-tmp"
+
+# Advanced classification examples
+classify-custom = "./symclatron classify --genome-dir data/test_genomes/ --output-dir custom_output --threads 4"
+classify-verbose = "./symclatron classify --genome-dir data/test_genomes/ --output-dir verbose_output --verbose"
+
+# Legacy tasks for backward compatibility
+classify-test = "./symclatron test"
+classify-test-keep-tmp = "./symclatron test --keep-tmp"

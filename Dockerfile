@@ -2,7 +2,7 @@
 FROM ghcr.io/prefix-dev/pixi:0.46.0
 
 LABEL maintainer="jvillada@lbl.gov"
-LABEL version="v0.1"
+LABEL version="0.3.1"
 LABEL software="symclatron: symbiont classifier"
 
 # Create and set working directory

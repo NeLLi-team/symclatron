@@ -1,220 +1,204 @@
 # symclatron: symbiont classifier
 
-## 💾 Installation
+**ML-based classification of microbial symbiotic lifestyles**
+
+symclatron is a tool that classifies microbial genomes into three symbiotic lifestyle categories:
+
+- **Free-living**
+- **Symbiont; Host-associated**
+- **Symbiont; Obligate-intracellular**
+
+## Installation
 
 Clone the `symclatron` repository:
 
-```{shell}
+```bash
 git clone https://github.com/NeLLi-team/symclatron.git
-```
-
-```{bash}
 cd symclatron/
 chmod u+x symclatron
 ```
 
-### Option 1: Using Conda/Mamba
+### Using pixi (recommended)
 
-Create `conda` environment and install requirements:
+[Pixi](https://pixi.sh/) is a fast, multi-platform package manager that provides the best experience with symclatron.
 
-```{bash}
-mamba create -c conda-forge -c bioconda --name symclatron --file requirements.txt
-```
+1. **Install pixi** by following the instructions at [https://pixi.sh/](https://pixi.sh/)
 
-### Option 2: Using Pixi
+2. **Install dependencies and setup environment:**
 
-[Pixi](https://pixi.sh/) is a fast, multi-platform package manager that can be used as an alternative to conda/mamba.
-
-1. Install Pixi by following the instructions at [https://pixi.sh/](https://pixi.sh/)
-
-2. If you have any active virtual environments (like conda, venv, etc.), deactivate them first:
-
-```{bash}
-# For conda/mamba environments
-conda deactivate
-
-# For venv environments
-deactivate
-```
-
-3. The repository includes a `pixi.toml` file with all necessary dependencies. To create the environment, run:
-
-```{bash}
+```bash
 pixi install
 ```
 
-4. To run symclatron commands with pixi:
+**Quick start with pixi:**
 
-```{bash}
-# Run the setup command
-pixi run -- ./symclatron setup
-
-# Get help for the classify command
-pixi run -- ./symclatron classify --help
-```
-
-5. Alternatively, you can use the predefined pixi tasks:
-
-```{bash}
-# Run the setup command
+```bash
+# Before using symclatron, you need to download the required database files. This only needs to be done once.
 pixi run setup
 
-# Run the classify command (default options)
-pixi run classify
+# Get help
+pixi run help
 
-# Run the classify command with test genomes
-pixi run classify-test
+# Run test with sample genomes
+pixi run test
 
-# Run the classify command with test genomes, keeping temporary files
-pixi run classify-test-keep-tmp
-
-# For custom options, use the direct command
-pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir custom_output_dir
+# Show detailed information
+pixi run info
 ```
 
-### 💽  Setup data (run only once)
+### Using conda/mamba
 
-**Run inside the `symclatron/` folder:**
+If you prefer conda/mamba, create the environment:
 
-#### Option 1: Using the setup command
+```bash
+mamba create -c conda-forge -c bioconda --name symclatron --file requirements.txt
+mamba activate symclatron
+```
 
-With conda/mamba:
+## Setup data (required)
 
-```{shell}
+Before using symclatron, you need to download the required database files. This only needs to be done once.
+
+### Using conda/mamba for setup
+
+```bash
 mamba activate symclatron
 ./symclatron setup
 ```
 
-With pixi:
+### Manual setup
 
-```{shell}
-pixi run -- ./symclatron setup
-```
+If the automated setup fails, you can extract the data manually:
 
-#### Option 2: Manual extraction
-
-If the setup command fails, you can manually extract the data.tar.gz file:
-
-```{shell}
+```bash
 tar -xzf data.tar.gz
 ```
 
-This will create a `data` directory with all the necessary files, including test genomes in the `data/test_genomes/` directory.
+### Classify your genomes
 
-_______
+```bash
+# Using pixi
+pixi run -- ./symclatron classify --genome-dir /path/to/genomes/ --output-dir results/
 
-## 🚀 Example run
-
-### Option 1: Using Conda/Mamba
-
-```{shell}
+# Using conda/mamba
 mamba activate symclatron
+./symclatron classify --genome-dir /path/to/genomes/ --output-dir results/
 ```
 
-```{shell}
-cd symclatron/
-```
+## Usage guide
 
-### Option 2: Using Pixi
+### Getting help
 
-No activation is needed with pixi. Just make sure you're in the symclatron directory:
+```bash
+# Main help
+./symclatron --help
 
-```{shell}
-cd symclatron/
-```
-
-### 👷🏻‍♀️  Run the classifier
-
-**Run inside the `symclatron/` folder:**
-
-### To get help
-
-With conda/mamba:
-
-```{bash}
+# Command-specific help
 ./symclatron classify --help
+./symclatron setup --help
+
+# Show version and information
+./symclatron --version
+./symclatron info
 ```
 
-With pixi:
+### Classification command
 
-```{bash}
-pixi run -- ./symclatron classify --help
+The main classification command with all options:
+
+```bash
+./symclatron classify [OPTIONS]
 ```
 
-Output:
+**Options:**
 
-```
-# Usage: symclatron classify [OPTIONS]
-#
-# ╭─ Options ───────────────────────────────────────────────────────────────────────────────────╮
-# │ --genome-dir                   TEXT  [default: input_genomes]                               │
-# │ --save-dir                     TEXT  [default: output_symclatron]                           │
-# │ --deltmp        --no-deltmp          [default: deltmp]                                      │
-# │ --help                               Show this message and exit.                            │
-# ╰─────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+- `--genome-dir, -i`: Directory containing genome FASTA files (.faa) [default: input_genomes]
+- `--output-dir, -o`: Output directory for results [default: output_symclatron]
+- `--keep-tmp`: Keep temporary files for debugging
+- `--threads, -t`: Number of threads for HMMER searches [default: 2]
+- `--quiet, -q`: Suppress progress messages
+- `--verbose`: Show detailed progress information
 
-**Run inside the `symclatron/` folder:**
+**Examples:**
 
-With conda/mamba:
+```bash
+# Basic usage
+./symclatron classify --genome-dir genomes/ --output-dir results/
 
-```{shell}
-./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron
-```
+# With more threads and keeping temporary files
+./symclatron classify -i genomes/ -o results/ --threads 8 --keep-tmp
 
-With pixi:
+# Quiet mode
+./symclatron classify --genome-dir genomes/ --quiet
 
-```{shell}
-# Using the direct command
-pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron
-
-# Or using the predefined task with test genomes
-pixi run classify-test
-
-# Or using the predefined task with test genomes, keeping temporary files
-pixi run classify-test-keep-tmp
-
-# For custom options, use the direct command
-pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir custom_output_dir
+# Verbose mode with detailed progress
+./symclatron classify --genome-dir genomes/ --verbose
 ```
 
-**Running from a different directory:**
+### Pixi tasks
 
-With conda/mamba:
+Pixi provides pre-configured tasks for common operations:
 
-```{shell}
-/path/to/symclatron/symclatron classify --genome-dir /path/to/genome/files/ --save-dir /path/to/output/directory
+```bash
+# Setup and basic operations
+pixi run setup              # Download and setup data
+pixi run help               # Show help
+pixi run info               # Show detailed information
+
+# Testing and quick runs
+pixi run test               # Run with test genomes
+pixi run test-keep-tmp      # Run test keeping temporary files
+
+# Custom classification examples
+pixi run classify-custom    # Example with custom settings
+pixi run classify-verbose   # Example with verbose output
+
+# Direct command access
+pixi run -- ./symclatron classify --genome-dir my_genomes/ --output-dir results/
 ```
 
-### 🕺🏻 Results
+## Results
 
-The classification results are saved in the specified output directory. The main output files are:
+The classification results are saved in the specified output directory:
 
-1. `symclatron_results.tsv` - Contains the final classification results with the following columns:
+### Main output files
+
+1. **`symclatron_results.tsv`** - Main classification results with columns:
    - `taxon_oid` - Genome identifier
    - `completeness_UNI56` - Completeness metric based on universal marker genes
    - `confidence` - Overall confidence score for the classification
-   - `classification` - Final classification label (Free-living, Symbiont;Host-associated, or Symbiont;Obligate-intracellular)
+   - `classification` - Final classification label:
+     - `Free-living`
+     - `Symbiont;Host-associated`
+     - `Symbiont;Obligate-intracellular`
 
-2. `classification_summary.txt` - A summary report of the classification results with statistics
+2. **`classification_summary.txt`** - Summary report with statistics
 
+3. **Log files** - Detailed execution logs with timestamps
 
-### ⌛️ Runtime
-`symclatron` works efficiently on any modern computer (even consumer-level laptops). Our (over)estimates are about 2 minutes per genome. For example, a recent batch run with 306 genomes lasted for ~162 minutes (1.9 min/genome)
+### Debug files
 
+When using `--keep-tmp`, intermediate files are preserved in `tmp/` directory for analysis.
 
-### 🐳 symclatron container
+## Performance
 
-#### Apptainer/Singularity
+symclatron is designed for efficiency:
 
-Pull the latest `symclatron` container from Docker Hub:
+- **~2 minutes per genome** on consumer-level laptops
+- **Most recent benchmark**: 306 genomes in ~162 minutes (1.9 min/genome)
+- **Memory efficient** - suitable for standard workstations
+
+## Container usage
+
+### Apptainer/Singularity
+
+Pull the latest container:
 
 ```bash
-apptainer pull \
-        docker://docker.io/jvillada/symclatron:latest
+apptainer pull docker://docker.io/jvillada/symclatron:latest
 ```
 
-Test `symclatron` with testing data:
+**Test with sample genomes:**
 
 ```bash
 my_test_dir=$PWD/test_output_symclatron
@@ -223,10 +207,10 @@ apptainer run \
     --pwd /usr/src/symclatron \
     --bind $my_test_dir:/usr/src/symclatron/output \
     docker://docker.io/jvillada/symclatron:latest \
-    pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir output
+    pixi run test --output-dir output
 ```
 
-Run `symclatron` with your own genomes:
+**Classify your genomes:**
 
 ```bash
 my_genomes_dir="/path/to/genome/faa_files/"
@@ -237,32 +221,27 @@ apptainer run \
     --bind $my_genomes_dir:/usr/src/symclatron/input_genomes \
     --bind $my_output_dir:/usr/src/symclatron/output \
     docker://docker.io/jvillada/symclatron:latest \
-    pixi run -- ./symclatron classify --genome-dir input_genomes/ --save-dir output
+    pixi run -- ./symclatron classify --genome-dir input_genomes/ --output-dir output
 ```
 
-## 🛠️ Advanced Options
+## Advanced options
 
-### Preserving Temporary Files
+### Input requirements
 
-By default, the temporary files created during the classification process are deleted after the analysis is complete. To keep these files (useful for debugging or advanced analysis), use the `--no-deltmp` flag:
+- **File format**: Protein FASTA files (.faa, .fasta, .fa)
+- **Content**: Predicted protein sequences from genomes
+- **Quality**: Complete or near-complete genomes recommended, but good performance for MQ MAGs are expected
 
-With conda/mamba:
+## Citation
 
-```bash
-./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron --no-deltmp
-```
+If you use symclatron in your research, please cite:
 
-With pixi:
+A genomic catalog of Earth’s bacterial and archaeal symbionts.
+Juan C. Villada, Yumary M. Vasquez, Gitta Szabo, Ewan Whittaker-Walker, Miguel F. Romero, Sarina Qin, Neha Varghese, Emiley A. Eloe-Fadrosh, Nikos C. Kyrpides, SymGs data consortium, Axel Visel, Tanja Woyke, Frederik Schulz
+bioRxiv 2025.05.29.656868; doi: https://doi.org/10.1101/2025.05.29.656868
 
-```bash
-# Using the direct command
-pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir test_output_symclatron --no-deltmp
+## Support
 
-# Or using the predefined task with test genomes, keeping temporary files
-pixi run classify-test-keep-tmp
-
-# For custom options, use the direct command
-pixi run -- ./symclatron classify --genome-dir data/test_genomes/ --save-dir custom_output_dir --no-deltmp
-```
-
-This will preserve all intermediate files in the `tmp/` directory within your output directory.
+- **Repository**: [https://github.com/NeLLi-team/symclatron](https://github.com/NeLLi-team/symclatron)
+- **Issues**: [https://github.com/NeLLi-team/symclatron/issues](https://github.com/NeLLi-team/symclatron/issues)
+- **Author**: Juan C. Villada <jvillada@lbl.gov>
