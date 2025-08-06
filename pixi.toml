@@ -1,7 +1,7 @@
 [project]
 name = "symclatron"
 version = "0.3.1"
-description = "Symbiont classifier - Machine Learning-based Classification of Microbial Symbiotic Lifestyles"
+description = "Symbiont classifier - Machine learning-based classification of microbial symbiotic lifestyles"
 authors = ["Juan C. Villada <jvillada@lbl.gov>"]
 channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64"]
