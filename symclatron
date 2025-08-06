@@ -19,7 +19,7 @@ from tqdm import tqdm
 import sys
 import urllib.request
 import joblib
-from typing import Optional, List, Dict, Union, Any
+from typing import Optional, List, Dict, Union, Any, Tuple
 from datetime import datetime
 
 # Define the script directory as a global variable for consistent path resolution
