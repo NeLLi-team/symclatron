@@ -215,24 +215,28 @@ def greetings():
 
 
 def init_message_setup() -> None:
+    """Print a setup message to the console."""
     message = "\n" + "-" * 10 + " Setup data workflow " + "-" * 10 + "\n"
     message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
     return typer.echo(message)
 
 
 def init_message_build() -> None:
+    """Print a build message to the console."""
     message = "Building classifiers workflow\n"
     message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
     return typer.echo(message)
 
 
 def init_message_classify() -> None:
+    """Print a classification message to the console."""
     message = "\n" + "-" * 10 + " Classifying genomes workflow " + "-" * 10 + "\n"
     message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
     return typer.echo(message)
 
 
 def extract_data() -> None:
+    """Download and extract the symclatron data archive."""
     typer.secho("Setting up symclatron data", fg=typer.colors.BRIGHT_GREEN)
 
     # URL for the data archive
@@ -287,7 +291,8 @@ def extract_data() -> None:
         exit(1)
 
 
-def create_output_dir(logger) -> None:
+
+def create_output_dir(logger: logging.Logger) -> None:
     """
     Create the output directory for results.
 
@@ -312,7 +317,7 @@ def create_output_dir(logger) -> None:
         )
 
 
-def create_tmp_dir(logger) -> None:
+def create_tmp_dir(logger: logging.Logger) -> None:
     """
     Create temporary directory for intermediate files.
 
@@ -334,6 +339,11 @@ def create_tmp_dir(logger) -> None:
 
 
 def copy_genomes_to_tmp_dir() -> str:
+    """Copy genomes to a temporary directory.
+
+    Returns:
+        str: Path to the temporary directory containing the genomes.
+    """
     tmp_genome_dir_path = f"{tmp_dir_path}/renamed_genomes"
     os.mkdir(tmp_genome_dir_path)
     for each_file in glob.glob(genomedir + "/*.faa"):
@@ -342,6 +352,14 @@ def copy_genomes_to_tmp_dir() -> str:
 
 
 def rename_genomes(tmp_genome_dir_path: str) -> str:
+    """Rename genomes to a simplified format.
+
+    Args:
+        tmp_genome_dir_path (str): Path to the temporary directory containing the genomes.
+
+    Returns:
+        str: Path to the JSON file containing the mapping of new to original genome names.
+    """
     genome_file_paths = glob.glob(tmp_genome_dir_path + "/*.faa")
     genome_names = [x.split("/")[-1].split(".faa")[0] for x in genome_file_paths]
     # the dictionary will have as keys the new simplified name of the genome and as values the original name
@@ -364,6 +382,12 @@ def rename_genomes(tmp_genome_dir_path: str) -> str:
 
 
 def rename_all_proteins_in_fasta_files(tmp_genome_dir_path: str, savedir: str) -> None:
+    """Rename all proteins in FASTA files to a simplified format.
+
+    Args:
+        tmp_genome_dir_path (str): Path to the temporary directory containing the genomes.
+        savedir (str): Path to the output directory.
+    """
     genome_file_paths = glob.glob(tmp_genome_dir_path + "/*.faa")
     for each_genome in genome_file_paths:
         # create a json dictionary with the original protein names and the new simplified names
@@ -396,7 +420,13 @@ def rename_all_proteins_in_fasta_files(tmp_genome_dir_path: str, savedir: str) -
     typer.secho("[OK] Proteins renamed\n", fg=typer.colors.BRIGHT_MAGENTA)
 
 
-def merge_genomes(tmp_genomes_path) -> None:
+
+def merge_genomes(tmp_genomes_path: str) -> None:
+    """Merge all genomes into a single FASTA file.
+
+    Args:
+        tmp_genomes_path (str): Path to the temporary directory containing the genomes.
+    """
     typer.secho("Merging genomes", fg=typer.colors.BRIGHT_GREEN)
     genome_file_paths = glob.glob(f"{tmp_genomes_path}/*.faa")
     output_file = f"{tmp_dir_path}/merged_genomes.faa"
@@ -410,7 +440,14 @@ def merge_genomes(tmp_genomes_path) -> None:
     )
 
 
-def run_hmmsearch(ncpus: int, resource_monitor=None) -> None:
+
+def run_hmmsearch(ncpus: int, resource_monitor: Optional["ResourceMonitor"] = None) -> None:
+    """Run hmmsearch on the merged genomes.
+
+    Args:
+        ncpus (int): Number of CPUs to use.
+        resource_monitor (ResourceMonitor, optional): Resource monitor object. Defaults to None.
+    """
     typer.secho(
         "Running hmmsearch on merged genomes for the hmm models file:\n",
         fg=typer.colors.BRIGHT_GREEN,
@@ -449,7 +486,14 @@ def run_hmmsearch(ncpus: int, resource_monitor=None) -> None:
     )
 
 
-def run_hmmsearch_uni56(ncpus: int, resource_monitor=None) -> None:
+
+def run_hmmsearch_uni56(ncpus: int, resource_monitor: Optional["ResourceMonitor"] = None) -> None:
+    """Run hmmsearch for UNI56 markers.
+
+    Args:
+        ncpus (int): Number of CPUs to use.
+        resource_monitor (ResourceMonitor, optional): Resource monitor object. Defaults to None.
+    """
     hmmfile = os.path.join(script_dir, "data/uni56.hmm")
     uni56_tblout = Path(tmp_dir_path) / "uni56_hmmsearch.tblout"
 
@@ -478,7 +522,9 @@ def run_hmmsearch_uni56(ncpus: int, resource_monitor=None) -> None:
     )
 
 
+
 def save_list_of_models() -> None:
+    """Save a list of models from HMM files."""
     typer.secho(
         "Saving list of models for each hmm model file", fg=typer.colors.BRIGHT_GREEN
     )
@@ -502,6 +548,11 @@ def save_list_of_models() -> None:
 
 
 def save_list_of_genomes(tmp_genomes_path: str) -> None:
+    """Save a list of genomes to a file.
+
+    Args:
+        tmp_genomes_path (str): Path to the temporary directory containing the genomes.
+    """
     typer.secho("Saving list of genomes", fg=typer.colors.BRIGHT_GREEN)
 
     list_of_genome_files = glob.glob(f"{tmp_genomes_path}/genome_*.faa")
@@ -517,7 +568,9 @@ def save_list_of_genomes(tmp_genomes_path: str) -> None:
     typer.secho("[OK] Genomes list saved\n", fg=typer.colors.BRIGHT_MAGENTA)
 
 
+
 def hmmer_results_to_pandas_df() -> None:
+    """Convert HMMER results to a pandas DataFrame."""
     typer.secho(
         "Generating matrix of highest scores from the hmmsearch output",
         fg=typer.colors.BRIGHT_GREEN,
@@ -575,8 +628,7 @@ def hmmer_results_to_pandas_df() -> None:
 
         tblout_hmm_result = tblout_hmm_result[["taxon_oid", "model", "score"]]
         tblout_hmm_result = tblout_hmm_result.sort_values(
-            by=["taxon_oid", "model", "score"]
-        ).reset_index(drop=True)
+            by=["taxon_oid", "model", "score"])
         tblout_hmm_result = tblout_hmm_result.drop_duplicates()
         tblout_hmm_result = tblout_hmm_result.pivot_table(
             index="taxon_oid", columns="model", values="score", fill_value=0
@@ -630,7 +682,9 @@ def hmmer_results_to_pandas_df() -> None:
     )
 
 
+
 def split_hits_all_models_for_3_models() -> None:
+    """Split the hits all models table into three separate tables for each model."""
     path_to_df = f"{tmp_dir_path}/symclatron_2384_union_features_hits_all_models.tsv"
     # Load the df
     df = pd.read_csv(path_to_df, sep="\t")
@@ -666,7 +720,13 @@ def split_hits_all_models_for_3_models() -> None:
     )
 
 
-def classify_genomes_internal(resource_monitor=None) -> None:
+
+def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = None) -> None:
+    """Classify genomes using the three XGBoost models.
+
+    Args:
+        resource_monitor (ResourceMonitor, optional): Resource monitor object. Defaults to None.
+    """
     for each_model in ["symcla", "symreg", "hostcla"]:
         start_time = time.time()
         typer.secho(
@@ -772,7 +832,13 @@ def classify_genomes_internal(resource_monitor=None) -> None:
         )
 
 
-def compute_feature_contribution(resource_monitor=None) -> None:
+
+def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] = None) -> None:
+    """Compute feature contribution for the symreg model.
+
+    Args:
+        resource_monitor (ResourceMonitor, optional): Resource monitor object. Defaults to None.
+    """
     start_time = time.time()
     typer.secho("Computing feature contribution for symreg", fg=typer.colors.BRIGHT_GREEN)
 
@@ -819,7 +885,7 @@ def compute_feature_contribution(resource_monitor=None) -> None:
         temp_df = pd.DataFrame({
             "taxon_oid": taxon_ids.iloc[i],
             "feature": feature_names,
-            "shap_value": shap_values.values[i,:],
+            "shap_value": shap_values.values[i,:] ,
             "feature_value": X_test.iloc[i,:].values
         })
         shap_melt = pd.concat([shap_melt, temp_df])
@@ -840,7 +906,9 @@ def compute_feature_contribution(resource_monitor=None) -> None:
     )
 
 
+
 def count_uni56() -> None:
+    """Count the number of UNI56 markers found in each genome."""
     df_uni56 = pd.read_csv(tmp_dir_path + "/uni56_hits_all_models.tsv", sep="\t")
     df_uni56 = df_uni56.set_index("taxon_oid", drop=True)
     df_uni56[df_uni56 > 0] = 1
@@ -849,12 +917,14 @@ def count_uni56() -> None:
     df_uni56.to_csv(tmp_dir_path + "/uni56_presence.tsv", sep="\t", index=True)
 
 
+
 def remove_temp_files() -> None:
+    """Remove the temporary files directory."""
     typer.secho(message="Removing tmp folder\n", fg=typer.colors.BRIGHT_GREEN)
     shutil.rmtree(tmp_dir_path)
 
 
-def calculate_weighted_distances(resource_monitor=None) -> None:
+def calculate_weighted_distances(resource_monitor: Optional["ResourceMonitor"] = None) -> None:
     """
     Calculate weighted euclidean distances for symreg and symcla models.
     This function calculates the minimum weighted distance between each submitted genome
@@ -934,7 +1004,7 @@ def calculate_weighted_distances(resource_monitor=None) -> None:
         resource_monitor.log_python_task("Weighted Distance Calculation", duration)
 
 
-def apply_neural_network(resource_monitor=None) -> None:
+def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -> None:
     """
     Apply the neural network to produce the final classification with confidence score.
     The neural network model uses the following features:
@@ -1041,7 +1111,7 @@ def apply_neural_network(resource_monitor=None) -> None:
         fg=typer.colors.BRIGHT_MAGENTA,
     )
 
-def predict_with_neural_network_batch(model, scaler, df):
+def predict_with_neural_network_batch(model: Any, scaler: Any, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, List[List[float]]]:
     """
     Make predictions using the trained neural network model for a batch of data.
 
@@ -1092,7 +1162,7 @@ def predict_with_neural_network_batch(model, scaler, df):
 
     return predictions.astype(int), adjusted_confidences, probabilities_list
 
-def predict_new_data(new_data, model=None, scaler=None):
+def predict_new_data(new_data: pd.DataFrame, model: Any = None, scaler: Any = None) -> pd.DataFrame:
     """
     Make predictions on new data with confidence scores.
 
@@ -1117,7 +1187,7 @@ def predict_new_data(new_data, model=None, scaler=None):
     return result_df
 
 
-def setup_logging(log_file=None):
+def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
     """
     Configure logging for the application.
 
@@ -1155,7 +1225,7 @@ def setup_logging(log_file=None):
     return logger
 
 
-def validate_input(genome_dir, logger):
+def validate_input(genome_dir: str, logger: logging.Logger) -> bool:
     """
     Validate input data before processing.
 
@@ -1231,7 +1301,7 @@ def validate_input(genome_dir, logger):
     return True
 
 
-def generate_classification_summary(output_dir, logger):
+def generate_classification_summary(output_dir: str, logger: logging.Logger) -> None:
     """
     Generate a summary report of classification results.
 
@@ -1364,7 +1434,7 @@ def main(
     """
     symclatron: Symbiont Classifier
 
-    Machine Learning-based Classification of Microbial Symbiotic Lifestyles
+    Machine learning-based classification of microbial symbiotic lifestyles
 
     This tool classifies microbial genomes into three categories:
     • Free-living
@@ -1491,7 +1561,8 @@ def classify_genomes(
     classify(
         genome_dir=genome_dir,
         save_dir=output_dir,
-        deltmp=not keep_tmp
+        deltmp=not keep_tmp,
+        ncpus=threads,
     )
 
 @app.command("info")
@@ -1510,18 +1581,13 @@ Email: jvillada@lbl.gov
 Institution: US DOE Joint Genome Institute (JGI), LBNL
 
 Classification Categories:
-• Free-living - Independent microorganisms
-• Symbiont; Host-associated - Associated with host but not obligate
-• Symbiont; Obligate-intracellular - Obligate intracellular symbionts
+• Free-living
+• Symbiont; Host-associated
+• Symbiont; Obligate-intracellular
 
 Performance:
 • Average runtime: ~2 minutes per genome
 • Tested on consumer-level laptops
-• Scales efficiently with multiple threads
-
-Citation:
-If you use symclatron in your research, please cite:
-Citation information will be provided upon publication
 
 Repository: https://github.com/NeLLi-team/symclatron
 Issues: https://github.com/NeLLi-team/symclatron/issues
@@ -1570,7 +1636,23 @@ def classify(
     genome_dir: str = "input_genomes",
     save_dir: str = "output_symclatron",
     deltmp: bool = True,
-):
+    ncpus: int = 2,
+) -> None:
+    """
+    Main classification function.
+
+    This function orchestrates the entire classification workflow, including:
+    - Setting up logging and resource monitoring.
+    - Validating input data.
+    - Running HMMER searches.
+    - Processing results and running machine learning models.
+    - Generating final reports.
+
+    Parameters:
+    genome_dir (str): Directory containing genome FASTA files.
+    save_dir (str): Directory to save results.
+    deltmp (bool): Whether to delete temporary files.
+    """
     start_time = time.time()
 
     global savedir
