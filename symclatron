@@ -1,26 +1,25 @@
 #!/usr/bin/env python
 
-import time
 import glob
+import json
+import joblib
+import logging
 import os
 import re
-import subprocess
-import pandas as pd
-import tarfile
-import typer
-import shap
 import shutil
-import json
-import xgboost as xgb
-import numpy as np
-from pathlib import Path
-import logging
-from tqdm import tqdm
-import sys
+import subprocess
+import tarfile
+import time
 import urllib.request
-import joblib
-from typing import Optional, List, Dict, Union, Any, Tuple
 from datetime import datetime
+from pathlib import Path
+from typing import Optional, List, Dict, Union, Any, Tuple
+
+import numpy as np
+import pandas as pd
+import shap
+import typer
+import xgboost as xgb
 
 # Define the script directory as a global variable for consistent path resolution
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -41,7 +40,7 @@ __version__ = "0.3.1"
 class ResourceMonitor:
     """Monitor system resource usage using /usr/bin/time"""
 
-    def __init__(self, log_dir: str = None):
+    def __init__(self, log_dir: Optional[str] = None):
         self.log_dir = log_dir or os.path.join(os.getcwd(), "logs")
         os.makedirs(self.log_dir, exist_ok=True)
 
@@ -82,7 +81,7 @@ class ResourceMonitor:
             f.write(f"# Format: Command | CPU_time(s) | Memory_GB | Wall_time(s) | Status\n")
             f.write("=" * 80 + "\n\n")
 
-    def run_command(self, cmd: list, description: str = None) -> subprocess.CompletedProcess:
+    def run_command(self, cmd: list, description: Optional[str] = None) -> subprocess.CompletedProcess:
         """Run command with resource monitoring"""
         if not self.time_cmd:
             # Fallback to regular subprocess if time not available
@@ -1019,12 +1018,9 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
 
     try:
         # Force TensorFlow to use CPU only
-        import os
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
-        # import tensorflow as tf
         from tensorflow.keras.models import load_model
-        import joblib
     except ImportError:
         typer.secho(
             "Error: Required libraries not installed. Please install tensorflow and joblib.",
@@ -1123,7 +1119,6 @@ def predict_with_neural_network_batch(model: Any, scaler: Any, df: pd.DataFrame)
     Returns:
     tuple: (predictions, confidences, probabilities_list)
     """
-    import numpy as np
 
     # Prepare features for all rows at once
     features = np.stack([
@@ -1714,10 +1709,10 @@ def classify(
     merge_genomes(tmp_genomes_path)
 
     logger.info("Running hmmsearch for symclatron models")
-    run_hmmsearch(ncpus=2, resource_monitor=resource_monitor)
+    run_hmmsearch(ncpus=ncpus, resource_monitor=resource_monitor)
 
     logger.info("Running hmmsearch for UNI56 markers")
-    run_hmmsearch_uni56(ncpus=2, resource_monitor=resource_monitor)
+    run_hmmsearch_uni56(ncpus=ncpus, resource_monitor=resource_monitor)
 
     logger.info("Saving models list")
     save_list_of_models()
