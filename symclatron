@@ -805,14 +805,14 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
             symcla_prediction = xgb_model.predict_proba(all_tblout_df)
             prob_df = pd.DataFrame(symcla_prediction, columns=class_labels)
             predictions_df = pd.concat([predictions_df, prob_df], axis=1)
-            predictions_df["max_proba_symcla"] = predictions_df[class_labels].idxmax(axis=1)
+            predictions_df["max_proba_symcla"] = predictions_df[class_labels].idxmax(axis="columns")
 
         elif each_model == "hostcla":
             class_labels = ["hostcla_proba_no", "hostcla_proba_yes"]
             hostcla_prediction = xgb_model.predict_proba(all_tblout_df)
             prob_df = pd.DataFrame(hostcla_prediction, columns=class_labels)
             predictions_df = pd.concat([predictions_df, prob_df], axis=1)
-            predictions_df["max_proba_hostcla"] = predictions_df[class_labels].idxmax(axis=1)
+            predictions_df["max_proba_hostcla"] = predictions_df[class_labels].idxmax(axis="columns")
 
         predictions_df.to_csv(
             f"{tmp_dir_path}/{each_model}_predictions.tsv", sep="\t", index=False

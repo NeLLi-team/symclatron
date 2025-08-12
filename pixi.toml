@@ -4,14 +4,13 @@ version = "0.3.1"
 description = "Symbiont classifier - Machine learning-based classification of microbial symbiotic lifestyles"
 authors = ["Juan C. Villada <jvillada@lbl.gov>"]
 channels = ["conda-forge", "bioconda"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
 
 [dependencies]
 python = "3.12.*"
 typer = "*"
 pandas = "*"
 numpy = "*"
-tqdm = "*"
 hmmer = "*"
 xgboost = "*"
 shap = "*"
