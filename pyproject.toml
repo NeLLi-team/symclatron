@@ -38,6 +38,3 @@ Repository = "https://github.com/NeLLi-team/symclatron"
 
 [project.scripts]
 symclatron = "symclatron.symclatron:app"
-
-[tool.flit.external-data]
-directory = "symclatron/data"
