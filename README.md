@@ -2,7 +2,7 @@
 
 **ML-based classification of microbial symbiotic lifestyles**
 
-symclatron is a tool that classifies microbial genomes into three symbiotic lifestyle categories:
+symclatron is a tool that classifies microbial genomes (input is protein FASTA files (`.faa`)) into three symbiotic lifestyle categories:
 
 - **Free-living**
 - **Symbiont; Host-associated**
@@ -29,7 +29,7 @@ Before using symclatron, you need to download the required database files. This 
 symclatron setup
 ```
 
-### Input requirements
+## Input file requirements
 
 - **Input file format**: Protein FASTA files (`.faa`)
 - **Quality**: Complete or near-complete genomes recommended, but good performance for MQ MAGs are expected
