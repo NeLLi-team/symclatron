@@ -16,6 +16,7 @@ curl -fsSL https://pixi.sh/install.sh | sh
 pixi global install python==3.13.5
 python -m venv symclatron_env
 source symclatron_env/bin/activate
+pip cache purge
 pip install symclatron
 symclatron setup
 symclatron test
