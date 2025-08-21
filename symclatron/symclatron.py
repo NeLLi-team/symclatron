@@ -1,31 +1,40 @@
 #!/usr/bin/env python
 
+# Standard library imports
 import glob
 import json
-import joblib
 import logging
 import os
+import platform
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
+import threading
 import time
 import urllib.request
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Union, Any, Tuple
 
+# Third-party imports
+import joblib
 import numpy as np
 import pandas as pd
+import psutil
+import pyhmmer
 import shap
 import typer
 import xgboost as xgb
+from tensorflow.keras.models import load_model
 
 # Define the script directory as a global variable for consistent path resolution
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 """
-symclatron: Symbiont Classifier
+symclatron: symbiont classifier
 Author: Juan C. Villada
 Email: jvillada@lbl.gov
 
@@ -34,11 +43,22 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.3.1"
+__version__ = "0.5.0"
+
+def version_callback(value: bool):
+    """Print version information."""
+    if value:
+        typer.echo(f"symclatron version {__version__}")
+        raise typer.Exit()
 
 
 class ResourceMonitor:
-    """Monitor system resource usage using /usr/bin/time"""
+    """
+    Resource monitoring using psutil for comprehensive system metrics.
+
+    This class provides real-time monitoring of CPU, memory, and execution time
+    for both subprocess commands and Python tasks, without relying on external tools.
+    """
 
     def __init__(self, log_dir: Optional[str] = None):
         self.log_dir = log_dir or os.path.join(os.getcwd(), "logs")
@@ -48,165 +68,274 @@ class ResourceMonitor:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.log_file = os.path.join(self.log_dir, f"resource_usage_{timestamp}.log")
 
-        # Check if /usr/bin/time is available
-        self.time_cmd = self._find_time_command()
+        # Get the current process for monitoring
+        self.process = psutil.Process()
 
-        # Initialize totals for final report
-        self.total_cpu_time = 0.0
-        self.max_memory_gb = 0.0
-        self.total_wall_time = 0.0
-        self.commands_run = 0
+        # Initialize tracking variables
+        self.session_start_time = time.time()
+        self.peak_memory_mb = 0.0
+        self.peak_cpu_percent = 0.0
+        self.total_tasks = 0
+        self.subprocess_tasks = 0
+        self.python_tasks = 0
+        self.total_subprocess_time = 0.0
+        self.total_python_time = 0.0
 
-        # Create log file with header
+        # For background monitoring
+        self._monitoring = False
+        self._monitor_thread = None
+
+        # Initialize log file
         self._init_log_file()
 
-    def _find_time_command(self):
-        """Find the best time command available"""
-        # Try /usr/bin/time first (GNU time with more features)
-        if shutil.which("/usr/bin/time"):
-            return "/usr/bin/time"
-        # Fall back to built-in time (less detailed)
-        elif shutil.which("time"):
-            return "time"
-        else:
-            typer.secho("Warning: No time command found. Resource monitoring disabled.",
-                       fg=typer.colors.YELLOW)
-            return None
+        # Start background monitoring
+        self._start_background_monitoring()
 
     def _init_log_file(self):
-        """Initialize log file with header"""
+        """Initialize log file with system information and header."""
+        system_info = self._get_system_info()
+
         with open(self.log_file, 'w') as f:
-            f.write(f"# symclatron Resource Usage Log\n")
+            f.write("# symclatron Resource Usage Log\n")
             f.write(f"# Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Format: Command | CPU_time(s) | Memory_GB | Wall_time(s) | Status\n")
+            f.write("# System Information:\n")
+            f.write(f"#   Python: {system_info['python_version']}\n")
+            f.write(f"#   Platform: {system_info['platform']}\n")
+            f.write(f"#   CPU Count: {system_info['cpu_count']}\n")
+            f.write(f"#   Total Memory: {system_info['total_memory_gb']:.2f} GB\n")
+            f.write(f"#   Available Memory: {system_info['available_memory_gb']:.2f} GB\n")
             f.write("=" * 80 + "\n\n")
 
-    def run_command(self, cmd: list, description: Optional[str] = None) -> subprocess.CompletedProcess:
-        """Run command with resource monitoring"""
-        if not self.time_cmd:
-            # Fallback to regular subprocess if time not available
-            return subprocess.run(cmd, capture_output=True, text=True)
+    def _get_system_info(self) -> Dict[str, Any]:
+        """Get comprehensive system information."""
+        memory = psutil.virtual_memory()
 
-        # Format for /usr/bin/time output
-        time_format = "%e,%M,%U,%S"  # wall_time, max_memory_kb, user_cpu, sys_cpu
+        return {
+            'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            'platform': f"{platform.system()} {platform.release()}",
+            'cpu_count': psutil.cpu_count(),
+            'total_memory_gb': memory.total / (1024**3),
+            'available_memory_gb': memory.available / (1024**3)
+        }
 
-        # Build the full command with time monitoring
-        full_cmd = [self.time_cmd, "-f", time_format] + cmd
+    def _start_background_monitoring(self):
+        """Start background thread to monitor peak resource usage."""
+        self._monitoring = True
+        self._monitor_thread = threading.Thread(target=self._background_monitor, daemon=True)
+        self._monitor_thread.start()
+
+    def _background_monitor(self):
+        """Background monitoring thread for tracking peak resource usage."""
+        while self._monitoring:
+            try:
+                # Monitor memory usage
+                memory_info = self.process.memory_info()
+                memory_mb = memory_info.rss / (1024**2)  # RSS in MB
+                self.peak_memory_mb = max(self.peak_memory_mb, memory_mb)
+
+                # Monitor CPU usage (averaged over 0.1 seconds)
+                cpu_percent = self.process.cpu_percent()
+                self.peak_cpu_percent = max(self.peak_cpu_percent, cpu_percent)
+
+                time.sleep(0.1)  # Sample every 100ms
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                break
+            except Exception:
+                # Continue monitoring even if there are transient errors
+                pass
+
+    def _stop_background_monitoring(self):
+        """Stop background monitoring thread."""
+        self._monitoring = False
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=1.0)
+
+    @contextmanager
+    def monitor_task(self, task_name: str, task_type: str = "python"):
+        """
+        Context manager for monitoring a task's resource usage.
+
+        Args:
+            task_name: Descriptive name for the task
+            task_type: Either "python" or "subprocess"
+        """
+        # Record initial state
+        start_time = time.time()
+        start_memory = self.process.memory_info().rss / (1024**2)  # MB
+        start_cpu_time = sum(self.process.cpu_times()[:2])  # user + system
 
         try:
-            # Run command and capture both stdout/stderr and time output
-            result = subprocess.run(full_cmd, capture_output=True, text=True)
+            yield
 
-            # Parse time output from stderr
-            time_lines = result.stderr.strip().split('\n')
-            time_output = time_lines[-1] if time_lines else ""
+        finally:
+            # Calculate resource usage
+            end_time = time.time()
+            end_memory = self.process.memory_info().rss / (1024**2)  # MB
+            end_cpu_time = sum(self.process.cpu_times()[:2])  # user + system
 
-            if ',' in time_output:
-                wall_time, max_mem_kb, user_cpu, sys_cpu = time_output.split(',')
+            duration = end_time - start_time
+            memory_delta = end_memory - start_memory
+            cpu_time_used = end_cpu_time - start_cpu_time
 
-                # Convert to useful units
-                wall_time = float(wall_time)
-                memory_gb = float(max_mem_kb) / 1024 / 1024  # KB to GB
-                cpu_time = float(user_cpu) + float(sys_cpu)
+            # Update counters
+            self.total_tasks += 1
+            if task_type == "subprocess":
+                self.subprocess_tasks += 1
+                self.total_subprocess_time += duration
+            else:
+                self.python_tasks += 1
+                self.total_python_time += duration
 
-                # Update totals
-                self.total_wall_time += wall_time
-                self.total_cpu_time += cpu_time
-                self.max_memory_gb = max(self.max_memory_gb, memory_gb)
-                self.commands_run += 1
+            # Log the task
+            self._log_task(task_name, task_type, duration, memory_delta, cpu_time_used)
 
-                # Log the command and its resource usage
+    def _log_task(self, task_name: str, task_type: str, duration: float,
+                  memory_delta: float, cpu_time: float):
+        """Log individual task performance."""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+
+        with open(self.log_file, 'a') as f:
+            f.write(f"{timestamp} | {task_name:<35} | {task_type:<10} | "
+                   f"{duration:>8.2f}s | {memory_delta:>+8.1f}MB | {cpu_time:>6.2f}s CPU\n")
+
+    def run_subprocess_with_monitoring(self, cmd: List[str], description: str) -> subprocess.CompletedProcess:
+        """
+        Run a subprocess command with comprehensive monitoring.
+
+        Args:
+            cmd: Command list to execute
+            description: Description for logging
+
+        Returns:
+            subprocess.CompletedProcess result
+        """
+        with self.monitor_task(description, "subprocess"):
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+                # Log command details
                 cmd_str = ' '.join(cmd)
-                desc = description or cmd_str[:50]
                 status = "SUCCESS" if result.returncode == 0 else f"FAILED({result.returncode})"
 
-                log_entry = f"{datetime.now().strftime('%H:%M:%S')} | {desc:<30} | {cpu_time:>6.2f}s | {memory_gb:>6.3f}GB | {wall_time:>6.2f}s | {status}\n"
-
                 with open(self.log_file, 'a') as f:
-                    f.write(f"Command: {cmd_str}\n")
-                    f.write(log_entry)
+                    f.write(f"    Command: {cmd_str}\n")
+                    f.write(f"    Status: {status}\n")
+                    if result.returncode != 0 and result.stderr:
+                        f.write(f"    Error: {result.stderr.strip()[:200]}...\n")
                     f.write("-" * 80 + "\n")
 
-                # Clean stderr to remove time output for normal processing
-                stderr_lines = result.stderr.split('\n')[:-1]  # Remove last line
-                result.stderr = '\n'.join(stderr_lines)
+                return result
 
-            return result
+            except Exception as e:
+                with open(self.log_file, 'a') as f:
+                    f.write(f"    Exception: {str(e)}\n")
+                    f.write("-" * 80 + "\n")
+                raise
 
-        except Exception as e:
-            typer.secho(f"Error running command with resource monitoring: {e}",
-                       fg=typer.colors.RED)
-            # Fallback to regular subprocess
-            return subprocess.run(cmd, capture_output=True, text=True)
+    def log_python_task(self, task_name: str, duration: float,
+                       memory_used: Optional[float] = None,
+                       additional_info: Optional[str] = None):
+        """
+        Log a Python task that was executed outside the context manager.
 
-    def finalize(self, total_execution_time_mins):
-        """Generate final resource usage report"""
+        Args:
+            task_name: Name of the task
+            duration: Duration in seconds
+            memory_used: Optional memory usage in MB
+            additional_info: Optional additional information
+        """
+        self.python_tasks += 1
+        self.total_python_time += duration
+        self.total_tasks += 1
+
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        memory_str = f"{memory_used:>+8.1f}MB" if memory_used else "   N/A  MB"
+
+        with open(self.log_file, 'a') as f:
+            f.write(f"{timestamp} | {task_name:<35} | python     | "
+                   f"{duration:>8.2f}s | {memory_str} | external\n")
+            if additional_info:
+                f.write(f"    Info: {additional_info}\n")
+            f.write("-" * 80 + "\n")
+
+    def finalize(self, total_execution_time_mins: float):
+        """Generate comprehensive final resource usage report."""
+        self._stop_background_monitoring()
+
+        # Calculate final statistics
+        session_duration_mins = (time.time() - self.session_start_time) / 60
+        peak_memory_gb = self.peak_memory_mb / 1024
+        efficiency = (self.total_python_time + self.total_subprocess_time) / (session_duration_mins * 60) * 100
+
+        # Generate detailed report
+        report_data = {
+            'execution_time_mins': total_execution_time_mins,
+            'session_duration_mins': session_duration_mins,
+            'total_tasks': self.total_tasks,
+            'subprocess_tasks': self.subprocess_tasks,
+            'python_tasks': self.python_tasks,
+            'subprocess_time': self.total_subprocess_time,
+            'python_time': self.total_python_time,
+            'peak_memory_gb': peak_memory_gb,
+            'peak_cpu_percent': self.peak_cpu_percent,
+            'efficiency_percent': efficiency
+        }
+
+        self._write_final_report(report_data)
+        self._print_console_summary(report_data)
+
+    def _write_final_report(self, data: Dict[str, float]):
+        """Write detailed final report to log file."""
         with open(self.log_file, 'a') as f:
             f.write("\n" + "=" * 80 + "\n")
             f.write("FINAL RESOURCE USAGE SUMMARY\n")
             f.write("=" * 80 + "\n")
-            f.write(f"Total execution time: {total_execution_time_mins:.1f} minutes\n")
-            f.write(f"Commands executed: {self.commands_run}\n")
-            f.write(f"Total CPU time: {self.total_cpu_time:.2f} seconds\n")
-            f.write(f"Peak memory usage: {self.max_memory_gb:.3f} GB\n")
-            f.write(f"Total wall time: {self.total_wall_time:.2f} seconds\n")
-            if self.total_wall_time > 0:
-                cpu_efficiency = (self.total_cpu_time / self.total_wall_time) * 100
-                f.write(f"CPU efficiency: {cpu_efficiency:.1f}%\n")
-            f.write(f"Session ended: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Session Duration: {data['session_duration_mins']:.1f} minutes\n")
+            f.write(f"Reported Execution Time: {data['execution_time_mins']:.1f} minutes\n")
+            f.write(f"\nTask Statistics:\n")
+            f.write(f"  Total tasks executed: {data['total_tasks']}\n")
+            f.write(f"  Subprocess tasks: {data['subprocess_tasks']}\n")
+            f.write(f"  Python tasks: {data['python_tasks']}\n")
+            f.write(f"\nTime Breakdown:\n")
+            f.write(f"  Subprocess time: {data['subprocess_time']:.2f} seconds\n")
+            f.write(f"  Python task time: {data['python_time']:.2f} seconds\n")
+            f.write(f"  Total active time: {data['subprocess_time'] + data['python_time']:.2f} seconds\n")
+            f.write(f"\nResource Usage:\n")
+            f.write(f"  Peak memory usage: {data['peak_memory_gb']:.3f} GB\n")
+            f.write(f"  Peak CPU usage: {data['peak_cpu_percent']:.1f}%\n")
+            f.write(f"  CPU efficiency: {data['efficiency_percent']:.1f}%\n")
+            f.write(f"\nSession ended: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-        # Also print to console
+    def _print_console_summary(self, data: Dict[str, float]):
+        """Print summary to console."""
         summary = f"""
 ✅ Resource monitoring completed!
-   Commands executed: {self.commands_run}
-   Peak memory usage: {self.max_memory_gb:.3f} GB
-   Total execution time: {total_execution_time_mins:.1f} minutes
+   Total tasks executed: {data['total_tasks']} (subprocess: {data['subprocess_tasks']}, python: {data['python_tasks']})
+   Peak memory usage: {data['peak_memory_gb']:.3f} GB
+   Peak CPU usage: {data['peak_cpu_percent']:.1f}%
+   Execution time: {data['execution_time_mins']:.1f} minutes
+   CPU efficiency: {data['efficiency_percent']:.1f}%
 """
         typer.secho(summary, fg=typer.colors.CYAN)
 
-    def log_python_task(self, task_name: str, duration: float):
-        """Log Python-only tasks that can't use /usr/bin/time"""
-        with open(self.log_file, 'a') as f:
-            f.write(f"{datetime.now().strftime('%H:%M:%S')} | {task_name:<30} | Python task - {duration:.2f}s duration\n")
-            f.write("-" * 80 + "\n")
+    def __del__(self):
+        """Cleanup when object is destroyed."""
+        self._stop_background_monitoring()
 
-    def generate_final_report(self):
-        """Generate final resource usage report"""
-        report = f"""
-Resource Usage Summary
-=====================
-Commands executed: {self.commands_run}
-Total CPU time: {self.total_cpu_time:.2f} seconds
-Peak memory usage: {self.max_memory_gb:.3f} GB
-Total wall time: {self.total_wall_time:.2f} seconds
-CPU efficiency: {(self.total_cpu_time/self.total_wall_time*100):.1f}% (if > 100%, parallel processing)
-
-Detailed log saved to: {self.log_file}
-"""
-
-        # Write final report to log file
-        with open(self.log_file, 'a') as f:
-            f.write("\n" + "=" * 80 + "\n")
-            f.write(f"# Session ended: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(report)
-
-        # Print to console
-        typer.secho(report, fg=typer.colors.CYAN)
-
-        return report
 
 def print_header():
     """Print symclatron header with version."""
     header = f"""
-symclatron v{__version__} - Symbiont Classifier
+symclatron v{__version__} - symbiont classifier
 
-Machine Learning-based Classification of Microbial Symbiotic Lifestyles
+Machine learning-based classification of microbial symbiotic lifestyles
 
 Author: Juan C. Villada <jvillada@lbl.gov>
 US DOE Joint Genome Institute (JGI)
 Lawrence Berkeley National Laboratory (LBNL)
 """
     typer.secho(header, fg=typer.colors.CYAN, bold=True)
+
 
 def greetings():
     """Legacy function for compatibility."""
@@ -441,7 +570,7 @@ def merge_genomes(tmp_genomes_path: str) -> None:
 
 
 def run_hmmsearch(ncpus: int, resource_monitor: Optional["ResourceMonitor"] = None) -> None:
-    """Run hmmsearch on the merged genomes.
+    """Run hmmsearch on the merged genomes using pyhmmer.
 
     Args:
         ncpus (int): Number of CPUs to use.
@@ -456,38 +585,84 @@ def run_hmmsearch(ncpus: int, resource_monitor: Optional["ResourceMonitor"] = No
         Path(tmp_dir_path) / "symclatron_2384_union_features_hmmsearch.tblout"
     )
 
-    cmd_search = [
-        "hmmsearch",
-        "--cpu",
-        str(ncpus),
-        "--tblout",
-        str(path_to_tblout),
-        "--noali",
-        "-E",
-        str(1000),
-        "--incE",
-        str(1000),
-        # "-Z", str(61295632),
-        os.path.join(script_dir, "data/symclatron_2384_union_features.hmm"),
-        f"{tmp_dir_path}/merged_genomes.faa",
-    ]
+    # Load HMM file using pyhmmer
+    hmm_file_path = os.path.join(script_dir, "data/symclatron_2384_union_features.hmm")
+    sequence_file_path = f"{tmp_dir_path}/merged_genomes.faa"
 
-    if resource_monitor:
-        result = resource_monitor.run_command(cmd_search, "HMMER search (symclatron features)")
-        if result.returncode != 0:
-            typer.secho(f"Error in HMMER search: {result.stderr}", fg=typer.colors.RED, err=True)
-    else:
-        subprocess.run(cmd_search, stdout=subprocess.PIPE)
+    try:
+        # Use resource monitoring context manager for the entire HMMER search
+        if resource_monitor:
+            monitor_context = resource_monitor.monitor_task("HMMER search (symclatron features)", "python")
+        else:
+            monitor_context = nullcontext()
 
-    typer.secho(
-        f"[OK] Hmmsearch output saved at: {path_to_tblout} \n",
-        fg=typer.colors.BRIGHT_MAGENTA,
-    )
+        with monitor_context:
+            # Load HMM profiles
+            with pyhmmer.plan7.HMMFile(hmm_file_path) as hmm_file:
+                hmms = list(hmm_file)
+
+            # Load sequences
+            with pyhmmer.easel.SequenceFile(sequence_file_path, digital=True) as seq_file:
+                sequences = list(seq_file)
+
+            # Run hmmsearch
+            all_hits = []
+            for hits in pyhmmer.hmmsearch(hmms, sequences, cpus=ncpus, E=1000, incE=1000):
+                query_name = hits.query.name.decode()
+                for hit in hits:
+                    for domain in hit.domains:
+                        # Format similar to HMMER tblout format
+                        all_hits.append({
+                            'target_name': hit.name.decode(),
+                            'accession': '-',
+                            'query_name': query_name,
+                            'accession_q': '-',
+                            'full_evalue': hit.evalue,
+                            'full_score': hit.score,
+                            'full_bias': hit.bias,
+                            'domain_evalue': domain.i_evalue,  # Use i_evalue (independent evalue)
+                            'domain_score': domain.score,
+                            'domain_bias': domain.bias,
+                            'hmm_from': domain.alignment.hmm_from,
+                            'hmm_to': domain.alignment.hmm_to,
+                            'ali_from': domain.alignment.target_from,
+                            'ali_to': domain.alignment.target_to,
+                            'env_from': domain.env_from,  # Use domain env_from
+                            'env_to': domain.env_to,      # Use domain env_to
+                            'acc': 0.0  # pyhmmer doesn't have domain accuracy, set to 0
+                        })
+
+            # Write results in HMMER tblout format
+            with open(path_to_tblout, 'w') as f:
+                # Write header comments
+                f.write("# hmmsearch :: search sequence(s) against a profile database\n")
+                f.write("# target name        accession   query name           accession   E-value  score  bias   ")
+                f.write("E-value  score  bias   from    to  from    to  from    to   acc\n")
+                f.write("#        description   --------- ----------- --------- ------ ----- ----- ")
+                f.write(" ------ ----- -----   ---- ---- ---- ---- ---- ----   ----\n")
+
+                for hit in all_hits:
+                    line = f"{hit['target_name']:<20} {hit['accession']:<9} {hit['query_name']:<19} " \
+                           f"{hit['accession_q']:<9} {hit['full_evalue']:8.1e} {hit['full_score']:6.1f} " \
+                           f"{hit['full_bias']:5.1f} {hit['domain_evalue']:8.1e} {hit['domain_score']:6.1f} " \
+                           f"{hit['domain_bias']:5.1f} {hit['hmm_from']:4d} {hit['hmm_to']:4d} " \
+                           f"{hit['ali_from']:4d} {hit['ali_to']:4d} {hit['env_from']:4d} " \
+                           f"{hit['env_to']:4d} {hit['acc']:6.3f}\n"
+                    f.write(line)
+
+        typer.secho(
+            f"[OK] Hmmsearch output saved at: {path_to_tblout} \n",
+            fg=typer.colors.BRIGHT_MAGENTA,
+        )
+
+    except Exception as e:
+        typer.secho(f"Error in pyhmmer search: {str(e)}", fg=typer.colors.RED, err=True)
+        raise
 
 
 
 def run_hmmsearch_uni56(ncpus: int, resource_monitor: Optional["ResourceMonitor"] = None) -> None:
-    """Run hmmsearch for UNI56 markers.
+    """Run hmmsearch for UNI56 markers using pyhmmer.
 
     Args:
         ncpus (int): Number of CPUs to use.
@@ -495,35 +670,82 @@ def run_hmmsearch_uni56(ncpus: int, resource_monitor: Optional["ResourceMonitor"
     """
     hmmfile = os.path.join(script_dir, "data/uni56.hmm")
     uni56_tblout = Path(tmp_dir_path) / "uni56_hmmsearch.tblout"
+    sequence_file_path = tmp_dir_path + "/merged_genomes.faa"
 
-    cmd_search = [
-        "hmmsearch",
-        "--cpu",
-        str(ncpus),
-        "--tblout",
-        str(uni56_tblout),
-        "--noali",
-        "--cut_ga",
-        hmmfile,
-        tmp_dir_path + "/merged_genomes.faa",
-    ]
+    try:
+        # Use resource monitoring context manager for the entire UNI56 HMMER search
+        if resource_monitor:
+            monitor_context = resource_monitor.monitor_task("HMMER search (UNI56 markers)", "python")
+        else:
+            monitor_context = nullcontext()
 
-    if resource_monitor:
-        result = resource_monitor.run_command(cmd_search, "HMMER search (UNI56 markers)")
-        if result.returncode != 0:
-            typer.secho(f"Error in UNI56 HMMER search: {result.stderr}", fg=typer.colors.RED, err=True)
-    else:
-        subprocess.run(cmd_search, stdout=subprocess.PIPE)
+        with monitor_context:
+            # Load HMM profiles
+            with pyhmmer.plan7.HMMFile(hmmfile) as hmm_file:
+                hmms = list(hmm_file)
 
-    typer.secho(
-        f"[OK] Hmmsearch output saved at: {uni56_tblout} \n",
-        fg=typer.colors.BRIGHT_MAGENTA,
-    )
+            # Load sequences
+            with pyhmmer.easel.SequenceFile(sequence_file_path, digital=True) as seq_file:
+                sequences = list(seq_file)
+
+            # Run hmmsearch with gathering thresholds (cut_ga equivalent)
+            all_hits = []
+            for hits in pyhmmer.hmmsearch(hmms, sequences, cpus=ncpus, bit_cutoffs="gathering"):
+                query_name = hits.query.name.decode()
+                for hit in hits:
+                    for domain in hit.domains:
+                        # Format similar to HMMER tblout format
+                        all_hits.append({
+                            'target_name': hit.name.decode(),
+                            'accession': '-',
+                            'query_name': query_name,
+                            'accession_q': '-',
+                            'full_evalue': hit.evalue,
+                            'full_score': hit.score,
+                            'full_bias': hit.bias,
+                            'domain_evalue': domain.i_evalue,  # Use i_evalue (independent evalue)
+                            'domain_score': domain.score,
+                            'domain_bias': domain.bias,
+                            'hmm_from': domain.alignment.hmm_from,
+                            'hmm_to': domain.alignment.hmm_to,
+                            'ali_from': domain.alignment.target_from,
+                            'ali_to': domain.alignment.target_to,
+                            'env_from': domain.env_from,  # Use domain env_from
+                            'env_to': domain.env_to,      # Use domain env_to
+                            'acc': 0.0  # pyhmmer doesn't have domain accuracy, set to 0
+                        })
+
+            # Write results in HMMER tblout format
+            with open(uni56_tblout, 'w') as f:
+                # Write header comments
+                f.write("# hmmsearch :: search sequence(s) against a profile database\n")
+                f.write("# target name        accession   query name           accession   E-value  score  bias   ")
+                f.write("E-value  score  bias   from    to  from    to  from    to   acc\n")
+                f.write("#        description   --------- ----------- --------- ------ ----- ----- ")
+                f.write(" ------ ----- -----   ---- ---- ---- ---- ---- ----   ----\n")
+
+                for hit in all_hits:
+                    line = f"{hit['target_name']:<20} {hit['accession']:<9} {hit['query_name']:<19} " \
+                           f"{hit['accession_q']:<9} {hit['full_evalue']:8.1e} {hit['full_score']:6.1f} " \
+                           f"{hit['full_bias']:5.1f} {hit['domain_evalue']:8.1e} {hit['domain_score']:6.1f} " \
+                           f"{hit['domain_bias']:5.1f} {hit['hmm_from']:4d} {hit['hmm_to']:4d} " \
+                           f"{hit['ali_from']:4d} {hit['ali_to']:4d} {hit['env_from']:4d} " \
+                           f"{hit['env_to']:4d} {hit['acc']:6.3f}\n"
+                    f.write(line)
+
+        typer.secho(
+            f"[OK] Hmmsearch output saved at: {uni56_tblout} \n",
+            fg=typer.colors.BRIGHT_MAGENTA,
+        )
+
+    except Exception as e:
+        typer.secho(f"Error in UNI56 pyhmmer search: {str(e)}", fg=typer.colors.RED, err=True)
+        raise
 
 
 
 def save_list_of_models() -> None:
-    """Save a list of models from HMM files."""
+    """Save a list of models from HMM files using pyhmmer."""
     typer.secho(
         "Saving list of models for each hmm model file", fg=typer.colors.BRIGHT_GREEN
     )
@@ -537,11 +759,22 @@ def save_list_of_models() -> None:
         models_list_file_path = (
             tmp_dir_path + "/" + os.path.basename(hmmfile).split(".")[0] + "_models.list"
         )
-        with open(models_list_file_path, "w") as output_models_list_file:
-            with open(hmmfile, "r") as my_hmmfile:
-                for line in my_hmmfile:
-                    if re.search("NAME", line):
-                        output_models_list_file.write(line.replace("NAME  ", ""))
+
+        try:
+            with open(models_list_file_path, "w") as output_models_list_file:
+                # Use pyhmmer to read HMM profiles and extract names
+                with pyhmmer.plan7.HMMFile(hmmfile) as hmm_file:
+                    for hmm in hmm_file:
+                        # Write the model name (equivalent to "NAME" field)
+                        output_models_list_file.write(hmm.name.decode() + "\n")
+        except Exception as e:
+            typer.secho(f"Error reading HMM file {hmmfile}: {str(e)}", fg=typer.colors.RED, err=True)
+            # Fallback to the original text parsing method
+            with open(models_list_file_path, "w") as output_models_list_file:
+                with open(hmmfile, "r") as my_hmmfile:
+                    for line in my_hmmfile:
+                        if re.search("NAME", line):
+                            output_models_list_file.write(line.replace("NAME  ", ""))
 
     typer.secho("[OK] Models list saved\n", fg=typer.colors.BRIGHT_MAGENTA)
 
@@ -823,7 +1056,7 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
 
         if resource_monitor:
             # Log resource usage for each ML model
-            resource_monitor.log_python_task(f"ML Classification ({each_model})", duration)
+            resource_monitor.log_python_task(f"ML Classification ({each_model})", duration, None, f"Model: {each_model}")
 
         typer.secho(
             f"[OK] Genomes classified with {each_model}\n",
@@ -897,7 +1130,7 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
     duration = end_time - start_time
 
     if resource_monitor:
-        resource_monitor.log_python_task("Feature Contribution Analysis (SHAP)", duration)
+        resource_monitor.log_python_task("Feature Contribution Analysis (SHAP)", duration, None, "SHAP explainer analysis")
 
     typer.secho(
         f"[OK] Feature contribution calculated for {each_model}\n",
@@ -912,7 +1145,7 @@ def count_uni56() -> None:
     df_uni56 = df_uni56.set_index("taxon_oid", drop=True)
     df_uni56[df_uni56 > 0] = 1
     df_uni56["total_UNI56"] = df_uni56.sum(axis=1)
-    df_uni56["completeness_UNI56"] = 100 * (df_uni56["total_UNI56"] / 56)
+    df_uni56["completeness_UNI56"] = (100 * (df_uni56["total_UNI56"] / 56)).round(2)
     df_uni56.to_csv(tmp_dir_path + "/uni56_presence.tsv", sep="\t", index=True)
 
 
@@ -1000,7 +1233,7 @@ def calculate_weighted_distances(resource_monitor: Optional["ResourceMonitor"] =
     duration = end_time - start_time
 
     if resource_monitor:
-        resource_monitor.log_python_task("Weighted Distance Calculation", duration)
+        resource_monitor.log_python_task("Weighted Distance Calculation", duration, None, "Distance matrix computation")
 
 
 def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -> None:
@@ -1020,8 +1253,7 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
         # Force TensorFlow to use CPU only
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
-        from tensorflow.keras.models import load_model
-    except ImportError:
+    except Exception:
         typer.secho(
             "Error: Required libraries not installed. Please install tensorflow and joblib.",
             fg=typer.colors.BRIGHT_RED,
@@ -1077,7 +1309,7 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
     # Create a simplified output dataframe
     output_df = pd.DataFrame({
         'taxon_oid': nn_results['taxon_oid'],
-        'completeness_UNI56': uni56_presence['completeness_UNI56'],
+        'completeness_UNI56': uni56_presence['completeness_UNI56'].round(2),
         # 'prob_Free_living': [prob[0] for prob in nn_results['probabilities']],
         # 'prob_Symbiont_Host_associated': [prob[1] for prob in nn_results['probabilities']],
         # 'prob_Symbiont_Obligate_intracellular': [prob[2] for prob in nn_results['probabilities']],
@@ -1100,7 +1332,7 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
     duration = end_time - start_time
 
     if resource_monitor:
-        resource_monitor.log_python_task("Neural Network Classification", duration)
+        resource_monitor.log_python_task("Neural Network Classification", duration, None, "Deep learning inference")
 
     typer.secho(
         f"[OK] Neural network classification completed\n",
@@ -1321,10 +1553,10 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
             completeness_stats = {}
             if 'completeness_UNI56' in results_df.columns:
                 completeness_stats = {
-                    'mean': results_df['completeness_UNI56'].mean(),
-                    'median': results_df['completeness_UNI56'].median(),
-                    'min': results_df['completeness_UNI56'].min(),
-                    'max': results_df['completeness_UNI56'].max()
+                    'mean': round(results_df['completeness_UNI56'].mean(), 2),
+                    'median': round(results_df['completeness_UNI56'].median(), 2),
+                    'min': round(results_df['completeness_UNI56'].min(), 2),
+                    'max': round(results_df['completeness_UNI56'].max(), 2)
                 }
 
             # Calculate confidence statistics
@@ -1339,7 +1571,7 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
 
             # Create summary text for console
             logger.info("=" * 60)
-            logger.info("CLASSIFICATION SUMMARY")
+            logger.info("Classification Summary")
             logger.info("=" * 60)
             logger.info(f"Total genomes analyzed: {len(results_df)}")
             logger.info("\nClassification counts:")
@@ -1399,239 +1631,12 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
         return
 
 
-# Create the main Typer app with rich help and callbacks
-app = typer.Typer(
-    name="symclatron",
-    help="Symbiont Classifier - Machine Learning-based Classification of Microbial Symbiotic Lifestyles",
-    epilog="For more information, visit: https://github.com/NeLLi-team/symclatron",
-    rich_markup_mode="rich",
-    add_completion=False,
-    no_args_is_help=True,
-)
-
-def version_callback(value: bool):
-    """Print version information."""
-    if value:
-        typer.echo(f"symclatron version {__version__}")
-        raise typer.Exit()
-
-@app.callback()
-def main(
-    version: Optional[bool] = typer.Option(
-        None,
-        "--version",
-        "-v",
-        callback=version_callback,
-        is_eager=True,
-        help="Show version and exit"
-    )
-):
-    """
-    symclatron: Symbiont Classifier
-
-    Machine learning-based classification of microbial symbiotic lifestyles
-
-    This tool classifies microbial genomes into three categories:
-    • Free-living
-    • Symbiont; Host-associated
-    • Symbiont; Obligate-intracellular
-    """
-    pass
-
-@app.command("setup")
-def setup_data(
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="Force re-download even if data directory exists"
-    ),
-    quiet: bool = typer.Option(
-        False,
-        "--quiet",
-        "-q",
-        help="Suppress progress messages"
-    )
-):
-    """
-    Download and setup required data files.
-
-    This command downloads the symclatron database and sets up the data directory.
-    Run this once before using the classifier.
-    """
-    if not quiet:
-        print_header()
-        init_message_setup()
-
-    # Check if data directory already exists and handle force flag
-    data_dir = os.path.join(script_dir, "data")
-    if os.path.isdir(data_dir) and not force:
-        if not quiet:
-            typer.secho("✅ Data directory already exists. Use --force to re-download.", fg=typer.colors.YELLOW)
-        return
-
-    extract_data()
-
-    if not quiet:
-        typer.secho("✅ Setup completed successfully!", fg=typer.colors.GREEN, bold=True)
-
-@app.command("classify")
-def classify_genomes(
-    genome_dir: str = typer.Option(
-        "input_genomes",
-        "--genome-dir",
-        "-i",
-        help="Directory containing genome FASTA files (.faa)"
-    ),
-    output_dir: str = typer.Option(
-        "output_symclatron",
-        "--output-dir",
-        "-o",
-        help="Output directory for results"
-    ),
-    keep_tmp: bool = typer.Option(
-        False,
-        "--keep-tmp",
-        help="Keep temporary files for debugging"
-    ),
-    threads: int = typer.Option(
-        2,
-        "--threads",
-        "-t",
-        min=1,
-        max=32,
-        help="Number of threads for HMMER searches"
-    ),
-    quiet: bool = typer.Option(
-        False,
-        "--quiet",
-        "-q",
-        help="Suppress progress messages"
-    ),
-    verbose: bool = typer.Option(
-        False,
-        "--verbose",
-        help="Show detailed progress information"
-    )
-):
-    """
-    Classify genomes into symbiotic lifestyle categories.
-
-    This command processes protein FASTA files (.faa) and classifies each genome
-    into one of three categories based on their predicted symbiotic lifestyle.
-    """
-    # Validate input directory
-    if not os.path.isdir(genome_dir):
-        typer.secho(f"❌ Error: Genome directory '{genome_dir}' does not exist", fg=typer.colors.RED)
-        raise typer.Exit(1)
-
-    # Check for .faa files
-    faa_files = glob.glob(os.path.join(genome_dir, "*.faa")) + \
-                glob.glob(os.path.join(genome_dir, "*.fasta")) + \
-                glob.glob(os.path.join(genome_dir, "*.fa"))
-
-    if not faa_files:
-        typer.secho(f"❌ Error: No FASTA files (.faa, .fasta, .fa) found in '{genome_dir}'", fg=typer.colors.RED)
-        raise typer.Exit(1)
-
-    # Check if data directory exists
-    data_dir = os.path.join(script_dir, "data")
-    if not os.path.isdir(data_dir):
-        typer.secho("❌ Error: Data directory not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
-        typer.secho("Tip: Run 'symclatron setup' to download required data files", fg=typer.colors.YELLOW)
-        raise typer.Exit(1)
-
-    if not quiet:
-        print_header()
-        init_message_classify()
-        typer.secho(f"Input directory: {genome_dir}", fg=typer.colors.BLUE)
-        typer.secho(f"Output directory: {output_dir}", fg=typer.colors.BLUE)
-        typer.secho(f"Threads: {threads}", fg=typer.colors.BLUE)
-        typer.secho(f"Found {len(faa_files)} genome files", fg=typer.colors.BLUE)
-
-        if keep_tmp:
-            typer.secho("Temporary files will be preserved", fg=typer.colors.YELLOW)
-
-    # Call the original classify function with updated parameters
-    classify(
-        genome_dir=genome_dir,
-        save_dir=output_dir,
-        deltmp=not keep_tmp,
-        ncpus=threads,
-    )
-
-@app.command("info")
-def show_info():
-    """
-    Show detailed information about symclatron.
-
-    Displays version, citation information, and usage statistics.
-    """
-    print_header()
-
-    info_text = f"""
-Version: {__version__}
-Author: Juan C. Villada
-Email: jvillada@lbl.gov
-Institution: US DOE Joint Genome Institute (JGI), LBNL
-
-Classification Categories:
-• Free-living
-• Symbiont; Host-associated
-• Symbiont; Obligate-intracellular
-
-Performance:
-• Average runtime: ~2 minutes per genome
-• Tested on consumer-level laptops
-
-Repository: https://github.com/NeLLi-team/symclatron
-Issues: https://github.com/NeLLi-team/symclatron/issues
-"""
-
-    typer.echo(info_text)
-
-@app.command("test")
-def run_test(
-    keep_tmp: bool = typer.Option(
-        False,
-        "--keep-tmp",
-        help="Keep temporary files after test"
-    ),
-    output_dir: str = typer.Option(
-        "test_output_symclatron",
-        "--output-dir",
-        "-o",
-        help="Output directory for test results"
-    )
-):
-    """
-    Run symclatron with test genomes.
-
-    This command runs a quick test using the provided test genomes
-    to verify that symclatron is working correctly.
-    """
-    test_genome_dir = os.path.join(script_dir, "data", "test_genomes")
-
-    if not os.path.isdir(test_genome_dir):
-        typer.secho("❌ Error: Test genomes not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
-        raise typer.Exit(1)
-
-    print_header()
-    typer.secho("Running test with provided genomes...", fg=typer.colors.BLUE, bold=True)
-
-    classify_genomes(
-        genome_dir=test_genome_dir,
-        output_dir=output_dir,
-        keep_tmp=keep_tmp,
-        threads=2,
-        quiet=False,
-        verbose=False
-    )
 def classify(
     genome_dir: str = "input_genomes",
     save_dir: str = "output_symclatron",
     deltmp: bool = True,
     ncpus: int = 2,
+    quiet: bool = False,
 ) -> None:
     """
     Main classification function.
@@ -1674,8 +1679,9 @@ def classify(
 
     # Rest of the function remains unchanged
     logger.info("Starting symclatron classifier")
-    greetings()
-    init_message_classify()
+    if not quiet:
+        greetings()
+        init_message_classify()
 
     script_path = Path(__file__)
     script_dir = script_path.parent
@@ -1781,6 +1787,208 @@ def classify(
         f"✅ Resource usage logs saved to: {resource_monitor.log_file}",
         fg=typer.colors.BRIGHT_GREEN,
     )
+
+
+app = typer.Typer(
+    name="symclatron",
+    help="Symbiont Classifier - Machine Learning-based Classification of Microbial Symbiotic Lifestyles",
+    epilog="For more information, visit: https://github.com/NeLLi-team/symclatron",
+    rich_markup_mode="rich",
+    add_completion=False,
+    no_args_is_help=True
+)
+
+
+
+@app.callback()
+def main(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-v",
+        callback=version_callback,
+        is_eager=True,
+        help="Show version and exit"
+    )
+):
+    """
+    symclatron: Symbiont Classifier
+
+    Machine learning-based classification of microbial symbiotic lifestyles
+
+    This tool classifies microbial genomes into three categories:
+    • Free-living
+    • Symbiont; Host-associated
+    • Symbiont; Obligate-intracellular
+    """
+    pass
+
+
+@app.command("setup")
+def setup_data(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Force re-download even if data directory exists"
+    ),
+    quiet: bool = typer.Option(
+        False,
+        "--quiet",
+        "-q",
+        help="Suppress progress messages"
+    )
+):
+    """
+    Download and setup required data files.
+
+    This command downloads the symclatron database and sets up the data directory.
+    Run this once before using the classifier.
+    """
+    if not quiet:
+        print_header()
+        init_message_setup()
+
+    # Check if data directory already exists and handle force flag
+    data_dir = os.path.join(script_dir, "data")
+    if os.path.isdir(data_dir) and not force:
+        if not quiet:
+            typer.secho("✅ Data directory already exists. Use --force to re-download.", fg=typer.colors.YELLOW)
+        return
+
+    extract_data()
+
+    if not quiet:
+        typer.secho("✅ Setup completed successfully!", fg=typer.colors.GREEN, bold=True)
+
+
+
+@app.command("classify")
+def classify_genomes(
+    genome_dir: str = typer.Option(
+        "input_genomes",
+        "--genome-dir",
+        "-i",
+        help="Directory containing genome FASTA files (.faa)"
+    ),
+    output_dir: str = typer.Option(
+        "output_symclatron",
+        "--output-dir",
+        "-o",
+        help="Output directory for results"
+    ),
+    keep_tmp: bool = typer.Option(
+        False,
+        "--keep-tmp",
+        help="Keep temporary files for debugging"
+    ),
+    threads: int = typer.Option(
+        2,
+        "--threads",
+        "-t",
+        min=1,
+        max=32,
+        help="Number of threads for HMMER searches"
+    ),
+    quiet: bool = typer.Option(
+        False,
+        "--quiet",
+        "-q",
+        help="Suppress progress messages"
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        help="Show detailed progress information"
+    )
+):
+    """
+    Classify genomes into symbiotic lifestyle categories.
+
+    This command processes protein FASTA files (.faa) and classifies each genome
+    into one of three categories based on their predicted symbiotic lifestyle.
+    """
+    # Validate input directory
+    if not os.path.isdir(genome_dir):
+        typer.secho(f"❌ Error: Genome directory '{genome_dir}' does not exist", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    # Check for .faa files
+    faa_files = glob.glob(os.path.join(genome_dir, "*.faa")) + \
+                glob.glob(os.path.join(genome_dir, "*.fasta")) + \
+                glob.glob(os.path.join(genome_dir, "*.fa"))
+
+    if not faa_files:
+        typer.secho(f"❌ Error: No FASTA files (.faa, .fasta, .fa) found in '{genome_dir}'", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    # Check if data directory exists
+    data_dir = os.path.join(script_dir, "data")
+    if not os.path.isdir(data_dir):
+        typer.secho("❌ Error: Data directory not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
+        typer.secho("Tip: Run 'symclatron setup' to download required data files", fg=typer.colors.YELLOW)
+        raise typer.Exit(1)
+
+    if not quiet:
+        print_header()
+        init_message_classify()
+        typer.secho(f"Input directory: {genome_dir}", fg=typer.colors.BLUE)
+        typer.secho(f"Output directory: {output_dir}", fg=typer.colors.BLUE)
+        typer.secho(f"Threads: {threads}", fg=typer.colors.BLUE)
+        typer.secho(f"Found {len(faa_files)} genome files", fg=typer.colors.BLUE)
+
+        if keep_tmp:
+            typer.secho("Temporary files will be preserved", fg=typer.colors.YELLOW)
+
+    # Call the original classify function with updated parameters
+    classify(
+        genome_dir=genome_dir,
+        save_dir=output_dir,
+        deltmp=not keep_tmp,
+        ncpus=threads,
+        quiet=quiet,  # Pass quiet parameter to avoid redundant headers
+    )
+
+
+@app.command("test")
+def run_test(
+    keep_tmp: bool = typer.Option(
+        False,
+        "--keep-tmp",
+        help="Keep temporary files after test"
+    ),
+    output_dir: str = typer.Option(
+        "test_output_symclatron",
+        "--output-dir",
+        "-o",
+        help="Output directory for test results"
+    )
+):
+    """
+    Run symclatron with test genomes.
+
+    This command runs a quick test using the provided test genomes
+    to verify that symclatron is working correctly.
+    """
+    test_genome_dir = os.path.join(script_dir, "data", "test_genomes")
+
+    if not os.path.isdir(test_genome_dir):
+        typer.secho("❌ Error: Test genomes not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    print_header()
+    typer.secho("Running test with provided genomes...", fg=typer.colors.BLUE, bold=True)
+
+    classify_genomes(
+        genome_dir=test_genome_dir,
+        output_dir=output_dir,
+        keep_tmp=keep_tmp,
+        threads=2,
+        quiet=True,  # Suppress redundant headers since we already printed them
+        verbose=False
+    )
+
+
 
 
 if __name__ == "__main__":
