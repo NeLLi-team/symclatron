@@ -8,98 +8,49 @@ symclatron is a tool that classifies microbial genomes into three symbiotic life
 - **Symbiont; Host-associated**
 - **Symbiont; Obligate-intracellular**
 
-## Installation
+## Installation and quick start
 
-Clone the `symclatron` repository:
-
-```bash
-git clone https://github.com/NeLLi-team/symclatron.git
-cd symclatron/
-chmod u+x symclatron
-```
-
-### Using pixi (recommended)
-
-[Pixi](https://pixi.sh/) is a fast, multi-platform package manager that provides the best experience with symclatron.
-
-1. **Install pixi** by following the instructions at [https://pixi.sh/](https://pixi.sh/)
-
-2. **Install dependencies and setup environment:**
-
-```bash
-pixi install
-```
-
-**Quick start with pixi:**
-
-```bash
-# Before using symclatron, you need to download the required database files. This only needs to be done once.
-pixi run setup
-
-# Get help
-pixi run help
-
-# Run test with sample genomes
-pixi run test
-
-# Show detailed information
-pixi run info
-```
-
-### Using conda/mamba
-
-If you prefer conda/mamba, create the environment:
-
-```bash
-mamba create -c conda-forge -c bioconda --name symclatron --file requirements.txt
-mamba activate symclatron
+```sh
+# install pixi
+curl -fsSL https://pixi.sh/install.sh | sh
+pixi global install python==3.13.5
+python -m venv symclatron_env
+source symclatron_env/bin/activate
+pip install symclatron
+symclatron setup
+symclatron test
 ```
 
 ## Setup data (required)
 
 Before using symclatron, you need to download the required database files. This only needs to be done once.
 
-### Using conda/mamba for setup
-
 ```bash
-mamba activate symclatron
-./symclatron setup
+symclatron setup
 ```
 
-### Manual setup
+### Input requirements
 
-If the automated setup fails, you can extract the data manually:
-
-```bash
-tar -xzf data.tar.gz
-```
+- **Input file format**: Protein FASTA files (`.faa`)
+- **Quality**: Complete or near-complete genomes recommended, but good performance for MQ MAGs are expected
 
 ### Classify your genomes
 
 ```bash
-# Using pixi
-pixi run -- ./symclatron classify --genome-dir /path/to/genomes/ --output-dir results/
-
-# Using conda/mamba
-mamba activate symclatron
-./symclatron classify --genome-dir /path/to/genomes/ --output-dir results/
+symclatron classify --genome-dir /path/to/genomes/ --output-dir results/
 ```
-
-## Usage guide
 
 ### Getting help
 
 ```bash
-# Main help
-./symclatron --help
+symclatron --help
 
 # Command-specific help
-./symclatron classify --help
-./symclatron setup --help
+symclatron classify --help
+symclatron setup --help
 
 # Show version and information
-./symclatron --version
-./symclatron info
+symclatron --version
 ```
 
 ### Classification command
@@ -107,7 +58,7 @@ mamba activate symclatron
 The main classification command with all options:
 
 ```bash
-./symclatron classify [OPTIONS]
+symclatron classify [OPTIONS]
 ```
 
 **Options:**
@@ -123,38 +74,16 @@ The main classification command with all options:
 
 ```bash
 # Basic usage
-./symclatron classify --genome-dir genomes/ --output-dir results/
+symclatron classify --genome-dir genomes/ --output-dir results/
 
 # With more threads and keeping temporary files
-./symclatron classify -i genomes/ -o results/ --threads 8 --keep-tmp
+symclatron classify -i genomes/ -o results/ --threads 8 --keep-tmp
 
 # Quiet mode
-./symclatron classify --genome-dir genomes/ --quiet
+symclatron classify --genome-dir genomes/ --quiet
 
 # Verbose mode with detailed progress
-./symclatron classify --genome-dir genomes/ --verbose
-```
-
-### Pixi tasks
-
-Pixi provides pre-configured tasks for common operations:
-
-```bash
-# Setup and basic operations
-pixi run setup              # Download and setup data
-pixi run help               # Show help
-pixi run info               # Show detailed information
-
-# Testing and quick runs
-pixi run test               # Run with test genomes
-pixi run test-keep-tmp      # Run test keeping temporary files
-
-# Custom classification examples
-pixi run classify-custom    # Example with custom settings
-pixi run classify-verbose   # Example with verbose output
-
-# Direct command access
-pixi run -- ./symclatron classify --genome-dir my_genomes/ --output-dir results/
+symclatron classify --genome-dir genomes/ --verbose
 ```
 
 ## Results
@@ -184,7 +113,7 @@ When using `--keep-tmp`, intermediate files are preserved in `tmp/` directory fo
 
 symclatron is designed for efficiency:
 
-- **~2 minutes per genome** on consumer-level laptops
+- **>2 minutes per genome** on consumer-level laptops
 - **Most recent benchmark**: 306 genomes in ~162 minutes (1.9 min/genome)
 - **Memory efficient** - suitable for standard workstations
 
@@ -223,14 +152,6 @@ apptainer run \
     docker://docker.io/jvillada/symclatron:latest \
     pixi run -- ./symclatron classify --genome-dir input_genomes/ --output-dir output
 ```
-
-## Advanced options
-
-### Input requirements
-
-- **File format**: Protein FASTA files (.faa, .fasta, .fa)
-- **Content**: Predicted protein sequences from genomes
-- **Quality**: Complete or near-complete genomes recommended, but good performance for MQ MAGs are expected
 
 ## Citation
 
