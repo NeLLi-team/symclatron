@@ -2,6 +2,9 @@
 requires = ["flit_core >=3.2,<4"]
 build-backend = "flit_core.buildapi"
 
+[project.scripts]
+symclatron = "symclatron.symclatron:app"
+
 [project]
 name = "symclatron"
 authors = [{ name = "Juan C. Villada", email = "jvillada@lbl.gov" }]
@@ -22,7 +25,7 @@ dependencies = [
     "xgboost>=2.1.1",
     "shap>=0.45.1",
     "scikit-learn>=1.5.1",
-    "tensorflow>=2.18.0",
+    "tensorflow-cpu>=2.18.0",
     "joblib>=1.4.2",
     "pyhmmer>=0.11.1",
     "psutil>=5.9.0"
@@ -35,6 +38,3 @@ Homepage = "https://github.com/NeLLi-team/symclatron"
 Documentation = "https://github.com/NeLLi-team/symclatron#readme"
 Repository = "https://github.com/NeLLi-team/symclatron"
 "Bug Tracker" = "https://github.com/NeLLi-team/symclatron/issues"
-
-[project.scripts]
-symclatron = "symclatron.symclatron:app"

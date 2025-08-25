@@ -8,3 +8,5 @@ test_output*
 *.pyc
 __pycache__/
 dist/
+output/
+bk_*

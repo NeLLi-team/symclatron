@@ -10,21 +10,30 @@ symclatron is a tool that classifies microbial genomes (input is protein FASTA f
 
 ## Installation and quick start
 
+### Step 1: Install `pixi` (Requirement ⚠️)
+
 ```sh
-# install pixi
 curl -fsSL https://pixi.sh/install.sh | sh
-pixi global install python==3.13.5
-python -m venv symclatron_env
-source symclatron_env/bin/activate
-pip cache purge
-pip install symclatron
+```
+
+More information about `pixi` can be found in the [pixi documentation](https://pixi.sh/).
+
+### Step 2: Install `symclatron`
+
+```sh
+pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 symclatron setup
+```
+
+### Test the installation
+
+```sh
 symclatron test
 ```
 
 ## Setup data (required)
 
-Before using symclatron, you need to download the required database files. This only needs to be done once.
+Before using `symclatron` for the first time, you need to download the required database files. This only needs to be done once.
 
 ```bash
 symclatron setup
@@ -126,32 +135,6 @@ Pull the latest container:
 
 ```bash
 apptainer pull docker://docker.io/jvillada/symclatron:latest
-```
-
-**Test with sample genomes:**
-
-```bash
-my_test_dir=$PWD/test_output_symclatron
-mkdir -p $my_test_dir
-apptainer run \
-    --pwd /usr/src/symclatron \
-    --bind $my_test_dir:/usr/src/symclatron/output \
-    docker://docker.io/jvillada/symclatron:latest \
-    pixi run test --output-dir output
-```
-
-**Classify your genomes:**
-
-```bash
-my_genomes_dir="/path/to/genome/faa_files/"
-my_output_dir="/path/to/output/directory/"
-mkdir -p $my_output_dir
-apptainer run \
-    --pwd /usr/src/symclatron \
-    --bind $my_genomes_dir:/usr/src/symclatron/input_genomes \
-    --bind $my_output_dir:/usr/src/symclatron/output \
-    docker://docker.io/jvillada/symclatron:latest \
-    pixi run -- ./symclatron classify --genome-dir input_genomes/ --output-dir output
 ```
 
 ## Citation
