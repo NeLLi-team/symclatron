@@ -49,7 +49,7 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.6.3"
+__version__ = "0.6.4"
 
 def version_callback(value: bool):
     """Print version information."""

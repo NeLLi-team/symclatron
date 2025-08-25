@@ -1,5 +1,5 @@
 context:
-  version: 0.6.0
+  version: 0.6.4
 
 package:
   name: symclatron
@@ -7,10 +7,12 @@ package:
 
 source:
 - url: https://pypi.org/packages/source/s/symclatron/symclatron-${{ version }}.tar.gz
-  sha256: 6e432751453f788dc46b2402e752246387447aa6fad3ee7f3fa09c95024f38a5
+  sha256: 9f34cf03f7464efdfd2c2fb0b0716122aba053913ad67a9ceb9e571ac7230ff3
 
 build:
-  script: ${{ PYTHON }} -m pip install .
+  script:
+    - sed -i 's/tensorflow-cpu/tensorflow/g' pyproject.toml
+    - ${{ PYTHON }} -m pip install .
   python:
     entry_points:
     - symclatron = symclatron.symclatron:app
