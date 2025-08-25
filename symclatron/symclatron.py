@@ -28,6 +28,12 @@ import pyhmmer
 import shap
 import typer
 import xgboost as xgb
+
+# Force TensorFlow to use CPU only
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow info/warning messages
+
 from tensorflow.keras.models import load_model
 
 # Define the script directory as a global variable for consistent path resolution
