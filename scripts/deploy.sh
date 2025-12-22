@@ -140,8 +140,44 @@ PY
 (
   cd "$ROOT_DIR"
   TWINE_USERNAME="__token__" TWINE_PASSWORD="$PYPI_API_TOKEN" \
-    python -m twine upload "dist/symclatron-${VERSION}"*
+    python -m twine upload --skip-existing "dist/symclatron-${VERSION}"*
 )
+
+PYPI_WAIT_TIMEOUT="${PYPI_WAIT_TIMEOUT:-600}"
+PYPI_WAIT_INTERVAL="${PYPI_WAIT_INTERVAL:-10}"
+PYPI_SDIST_URL="https://pypi.org/packages/source/s/symclatron/symclatron-${VERSION}.tar.gz"
+
+python - <<'PY' "$PYPI_SDIST_URL" "$PYPI_WAIT_TIMEOUT" "$PYPI_WAIT_INTERVAL"
+import sys
+import time
+import urllib.error
+import urllib.request
+
+url = sys.argv[1]
+timeout_s = int(sys.argv[2])
+interval_s = int(sys.argv[3])
+
+if timeout_s <= 0:
+    raise SystemExit(0)
+
+deadline = time.time() + timeout_s
+while True:
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if 200 <= resp.status < 400:
+                print(f"[OK] PyPI sdist available: {url}")
+                break
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            print(f"PyPI check failed with HTTP {exc.code}; retrying...")
+    except Exception as exc:
+        print(f"PyPI check failed: {exc}; retrying...")
+
+    if time.time() >= deadline:
+        raise SystemExit(f"Timed out waiting for PyPI sdist: {url}")
+    time.sleep(interval_s)
+PY
 
 BUILD_DIR="$ROOT_DIR/dist/conda"
 mkdir -p "$BUILD_DIR"
@@ -154,7 +190,7 @@ if [[ ${#PKGS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-rattler-build upload prefix --channel astrogenomics --api-key "$PREFIX_API_KEY" "${PKGS[@]}"
+rattler-build upload prefix --channel astrogenomics --api-key "$PREFIX_API_KEY" --skip-existing "${PKGS[@]}"
 
 if [[ "$DO_GIT_PUSH" -eq 1 ]]; then
   (
