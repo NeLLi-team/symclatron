@@ -91,6 +91,18 @@ else:
     raise SystemExit("Could not find context.version in recipe.yaml")
 
 recipe.write_text("\n".join(lines) + "\n")
+
+readme = root / "README.md"
+if readme.exists():
+    readme_text = readme.read_text()
+    readme_text, readme_count = re.subn(
+        r"symclatron-\d+\.\d+\.\d+",
+        f"symclatron-{version}",
+        readme_text,
+    )
+    if readme_count == 0:
+        raise SystemExit("Could not find symclatron-<version> in README.md")
+    readme.write_text(readme_text)
 PY
 
 (

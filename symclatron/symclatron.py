@@ -49,7 +49,7 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.7.2"
+__version__ = "0.8.0"
 
 def version_callback(value: bool):
     """Print version information."""
@@ -114,15 +114,15 @@ class ResourceMonitor:
         system_info = self._get_system_info()
 
         with open(self.log_file, 'w') as f:
-            f.write("# symclatron Resource Usage Log\n")
+            f.write("# symclatron resource usage log\n")
             f.write(f"# Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("# System Information:\n")
+            f.write("# System information:\n")
             f.write(f"#   Python: {system_info['python_version']}\n")
             f.write(f"#   Platform: {system_info['platform']}\n")
-            f.write(f"#   CPU Count: {system_info['cpu_count']}\n")
-            f.write(f"#   Total Memory: {system_info['total_memory_gb']:.2f} GB\n")
-            f.write(f"#   Available Memory: {system_info['available_memory_gb']:.2f} GB\n")
-            f.write("=" * 80 + "\n\n")
+            f.write(f"#   CPU count: {system_info['cpu_count']}\n")
+            f.write(f"#   Total memory: {system_info['total_memory_gb']:.2f} GB\n")
+            f.write(f"#   Available memory: {system_info['available_memory_gb']:.2f} GB\n")
+            f.write("\n")
 
     def _get_system_info(self) -> Dict[str, Any]:
         """Get comprehensive system information."""
@@ -233,21 +233,21 @@ class ResourceMonitor:
 
                 # Log command details
                 cmd_str = ' '.join(cmd)
-                status = "SUCCESS" if result.returncode == 0 else f"FAILED({result.returncode})"
+                status = "success" if result.returncode == 0 else f"failed({result.returncode})"
 
                 with open(self.log_file, 'a') as f:
                     f.write(f"    Command: {cmd_str}\n")
                     f.write(f"    Status: {status}\n")
                     if result.returncode != 0 and result.stderr:
                         f.write(f"    Error: {result.stderr.strip()[:200]}...\n")
-                    f.write("-" * 80 + "\n")
+                    f.write("\n")
 
                 return result
 
             except Exception as e:
                 with open(self.log_file, 'a') as f:
                     f.write(f"    Exception: {str(e)}\n")
-                    f.write("-" * 80 + "\n")
+                    f.write("\n")
                 raise
 
     def log_python_task(self, task_name: str, duration: float,
@@ -274,7 +274,7 @@ class ResourceMonitor:
                    f"{duration:>8.2f}s | {memory_str} | external\n")
             if additional_info:
                 f.write(f"    Info: {additional_info}\n")
-            f.write("-" * 80 + "\n")
+            f.write("\n")
 
     def finalize(self, total_execution_time_mins: float):
         """Generate comprehensive final resource usage report."""
@@ -305,20 +305,18 @@ class ResourceMonitor:
     def _write_final_report(self, data: Dict[str, float]):
         """Write detailed final report to log file."""
         with open(self.log_file, 'a') as f:
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("FINAL RESOURCE USAGE SUMMARY\n")
-            f.write("=" * 80 + "\n")
-            f.write(f"Session Duration: {data['session_duration_mins']:.1f} minutes\n")
-            f.write(f"Reported Execution Time: {data['execution_time_mins']:.1f} minutes\n")
-            f.write(f"\nTask Statistics:\n")
+            f.write("\nFinal resource usage summary\n\n")
+            f.write(f"Session duration: {data['session_duration_mins']:.1f} minutes\n")
+            f.write(f"Reported execution time: {data['execution_time_mins']:.1f} minutes\n")
+            f.write("\nTask statistics:\n")
             f.write(f"  Total tasks executed: {data['total_tasks']}\n")
             f.write(f"  Subprocess tasks: {data['subprocess_tasks']}\n")
             f.write(f"  Python tasks: {data['python_tasks']}\n")
-            f.write(f"\nTime Breakdown:\n")
+            f.write("\nTime breakdown:\n")
             f.write(f"  Subprocess time: {data['subprocess_time']:.2f} seconds\n")
             f.write(f"  Python task time: {data['python_time']:.2f} seconds\n")
             f.write(f"  Total active time: {data['subprocess_time'] + data['python_time']:.2f} seconds\n")
-            f.write(f"\nResource Usage:\n")
+            f.write("\nResource usage:\n")
             f.write(f"  Peak memory usage: {data['peak_memory_gb']:.3f} GB\n")
             f.write(f"  Peak CPU usage: {data['peak_cpu_percent']:.1f}%\n")
             f.write(f"  CPU efficiency: {data['efficiency_percent']:.1f}%\n")
@@ -327,12 +325,12 @@ class ResourceMonitor:
     def _print_console_summary(self, data: Dict[str, float]):
         """Print summary to console."""
         summary = f"""
-✅ Resource monitoring completed!
-   Total tasks executed: {data['total_tasks']} (subprocess: {data['subprocess_tasks']}, python: {data['python_tasks']})
-   Peak memory usage: {data['peak_memory_gb']:.3f} GB
-   Peak CPU usage: {data['peak_cpu_percent']:.1f}%
-   Execution time: {data['execution_time_mins']:.1f} minutes
-   CPU efficiency: {data['efficiency_percent']:.1f}%
+Resource monitoring completed.
+Total tasks executed: {data['total_tasks']} (subprocess: {data['subprocess_tasks']}, python: {data['python_tasks']})
+Peak memory usage: {data['peak_memory_gb']:.3f} GB
+Peak CPU usage: {data['peak_cpu_percent']:.1f}%
+Execution time: {data['execution_time_mins']:.1f} minutes
+CPU efficiency: {data['efficiency_percent']:.1f}%
 """
         typer.secho(summary, fg=typer.colors.CYAN)
 
@@ -362,39 +360,54 @@ def greetings():
 
 def init_message_setup() -> None:
     """Print a setup message to the console."""
-    message = "\n" + "-" * 10 + " Setup data workflow " + "-" * 10 + "\n"
+    message = "\nSetup data workflow\n"
     message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
     return typer.echo(message)
 
 
 def init_message_build() -> None:
     """Print a build message to the console."""
-    message = "Building classifiers workflow\n"
+    message = "Build classifiers workflow\n"
     message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
     return typer.echo(message)
 
 
 def init_message_classify() -> None:
     """Print a classification message to the console."""
-    message = "\n" + "-" * 10 + " Classifying genomes workflow " + "-" * 10 + "\n"
+    message = "\nClassify genomes workflow\n"
     message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
     return typer.echo(message)
 
 
-def extract_data() -> None:
+def extract_data(force: bool = False) -> None:
     """Download and extract the symclatron data archive."""
     typer.secho("Setting up symclatron data", fg=typer.colors.BRIGHT_GREEN)
 
     # URL for the data archive
     data_url = "https://portal.nersc.gov/cfs/nelli/symclatron_db.tar.gz"
+    data_dir = os.path.join(script_dir, "data")
+    typer.secho(f"Target data directory: {data_dir}", fg=typer.colors.BRIGHT_BLUE)
 
     # Check if data directory already exists
-    if os.path.isdir(os.path.join(script_dir, "data")):
-        typer.secho("Data directory already exists. Using existing data.", fg=typer.colors.BRIGHT_YELLOW)
-        return
+    if os.path.isdir(data_dir):
+        if not force:
+            typer.secho(
+                f"Data directory already exists. Using existing data at: {data_dir}",
+                fg=typer.colors.BRIGHT_YELLOW,
+            )
+            return
+        typer.secho(
+            f"Removing existing data directory: {data_dir}",
+            fg=typer.colors.BRIGHT_YELLOW,
+        )
+        shutil.rmtree(data_dir)
 
     # Create a temporary file path
     tmp_download_path = os.path.join(script_dir, "symclatron_db.tar.gz")
+    typer.secho(
+        f"Temporary download path: {tmp_download_path}",
+        fg=typer.colors.BRIGHT_BLUE,
+    )
 
     try:
         # Download the file
@@ -422,6 +435,7 @@ def extract_data() -> None:
             os.remove(tmp_download_path)
 
         typer.secho("[OK] Data setup complete\n", fg=typer.colors.BRIGHT_MAGENTA)
+        typer.secho(f"Data installed at: {data_dir}", fg=typer.colors.BRIGHT_GREEN)
 
     except Exception as e:
         typer.secho(
@@ -449,7 +463,7 @@ def create_output_dir(logger: logging.Logger) -> None:
     if os.path.exists(savedir):
         logger.error(f"Output directory '{savedir}' already exists")
         typer.secho(
-            "[Error] Output directory already exists",
+            f"Output directory already exists: {savedir}",
             fg=typer.colors.BRIGHT_RED,
             err=True,
         )
@@ -458,12 +472,12 @@ def create_output_dir(logger: logging.Logger) -> None:
         os.mkdir(savedir)
         logger.info(f"Output directory created at: {savedir}")
         typer.secho(
-            f"[OK] Output directory created at: {savedir} \n",
+            f"Output directory created at: {savedir}",
             fg=typer.colors.BRIGHT_MAGENTA,
         )
 
 
-def create_tmp_dir(logger: logging.Logger) -> None:
+def create_tmp_dir(logger: logging.Logger, overwrite: bool = False) -> None:
     """
     Create temporary directory for intermediate files.
 
@@ -472,16 +486,30 @@ def create_tmp_dir(logger: logging.Logger) -> None:
     """
     logger.info(f"Creating temporary directory: {tmp_dir_path}")
     if os.path.exists(tmp_dir_path):
-        logger.error(f"Temporary directory '{tmp_dir_path}' already exists")
-        typer.secho(
-            "[Error] Output tmp directory already exists",
-            fg=typer.colors.BRIGHT_RED,
-            err=True,
-        )
-        exit(1)
-    else:
-        os.mkdir(tmp_dir_path)
-        logger.debug(f"Temporary directory created successfully")
+        logger.warning(f"Temporary directory already exists: {tmp_dir_path}")
+        if overwrite:
+            typer.secho(
+                f"Temporary directory already exists: {tmp_dir_path}",
+                fg=typer.colors.YELLOW,
+            )
+            typer.secho(
+                "Removing existing temporary directory",
+                fg=typer.colors.YELLOW,
+            )
+            shutil.rmtree(tmp_dir_path)
+        else:
+            typer.secho(
+                f"Temporary directory already exists: {tmp_dir_path}",
+                fg=typer.colors.BRIGHT_RED,
+                err=True,
+            )
+            typer.secho(
+                "Remove the directory or rerun without --keep-tmp.",
+                fg=typer.colors.YELLOW,
+            )
+            exit(1)
+    os.mkdir(tmp_dir_path)
+    logger.debug("Temporary directory created successfully")
 
 
 def copy_genomes_to_tmp_dir() -> str:
@@ -1593,9 +1621,7 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
                 }
 
             # Create summary text for console
-            logger.info("=" * 60)
-            logger.info("Classification Summary")
-            logger.info("=" * 60)
+            logger.info("Classification summary")
             logger.info(f"Total genomes analyzed: {len(results_df)}")
             logger.info("\nClassification counts:")
             for category, count in class_counts.items():
@@ -1617,34 +1643,29 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
             # Create a formal summary file
             summary_file = f"{output_dir}/classification_summary.txt"
             with open(summary_file, 'w') as f:
-                f.write("SYMCLATRON CLASSIFICATION SUMMARY\n")
-                f.write("=" * 40 + "\n\n")
+                f.write("Symclatron classification summary\n\n")
                 f.write(f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
                 f.write(f"Total genomes analyzed: {len(results_df)}\n\n")
 
-                f.write("CLASSIFICATION COUNTS\n")
-                f.write("-" * 30 + "\n")
+                f.write("Classification counts\n\n")
                 for category, count in class_counts.items():
                     percentage = (count / len(results_df)) * 100
                     f.write(f"{category}: {count} ({percentage:.1f}%)\n")
 
-                f.write("\nCOMPLETENESS STATISTICS (UNI56 MARKERS)\n")
-                f.write("-" * 30 + "\n")
+                f.write("\nCompleteness statistics (UNI56 markers)\n\n")
                 f.write(f"Mean: {completeness_stats.get('mean', 'N/A'):.2f}%\n")
                 f.write(f"Median: {completeness_stats.get('median', 'N/A'):.2f}%\n")
                 f.write(f"Min: {completeness_stats.get('min', 'N/A'):.2f}%\n")
                 f.write(f"Max: {completeness_stats.get('max', 'N/A'):.2f}%\n")
 
-                f.write("\nCONFIDENCE STATISTICS\n")
-                f.write("-" * 30 + "\n")
+                f.write("\nConfidence statistics\n\n")
                 f.write(f"Mean: {confidence_stats.get('mean', 'N/A'):.2f}\n")
                 f.write(f"Median: {confidence_stats.get('median', 'N/A'):.2f}\n")
                 f.write(f"Min: {confidence_stats.get('min', 'N/A'):.2f}\n")
                 f.write(f"Max: {confidence_stats.get('max', 'N/A'):.2f}\n")
 
             logger.info(f"\nSummary saved to: {summary_file}")
-            logger.info("=" * 60)
 
         else:
             logger.warning("Classification column not found in results. Cannot generate complete summary.")
@@ -1714,7 +1735,7 @@ def classify(
 
     global tmp_dir_path
     tmp_dir_path = f"{savedir}/tmp"
-    create_tmp_dir(logger)
+    create_tmp_dir(logger, overwrite=deltmp)
 
     global genomedir
     genomedir = genome_dir
@@ -1805,9 +1826,9 @@ def classify(
     resource_monitor.finalize(execution_time_mins)
 
     # Display final resource summary
-    logger.info("📊 Resource usage summary saved to resource log file")
+    logger.info("Resource usage summary saved to resource log file")
     typer.secho(
-        f"✅ Resource usage logs saved to: {resource_monitor.log_file}",
+        f"Resource usage logs saved to: {resource_monitor.log_file}",
         fg=typer.colors.BRIGHT_GREEN,
     )
 
@@ -1876,13 +1897,16 @@ def setup_data(
     data_dir = os.path.join(script_dir, "data")
     if os.path.isdir(data_dir) and not force:
         if not quiet:
-            typer.secho("✅ Data directory already exists. Use --force to re-download.", fg=typer.colors.YELLOW)
+            typer.secho(
+                f"Data directory already exists at: {data_dir}. Use --force to re-download.",
+                fg=typer.colors.YELLOW,
+            )
         return
 
-    extract_data()
+    extract_data(force=force)
 
     if not quiet:
-        typer.secho("✅ Setup completed successfully!", fg=typer.colors.GREEN, bold=True)
+        typer.secho("Setup completed successfully.", fg=typer.colors.GREEN, bold=True)
 
 
 
@@ -1933,7 +1957,7 @@ def classify_genomes(
     """
     # Validate input directory
     if not os.path.isdir(genome_dir):
-        typer.secho(f"❌ Error: Genome directory '{genome_dir}' does not exist", fg=typer.colors.RED)
+        typer.secho(f"Error: Genome directory '{genome_dir}' does not exist", fg=typer.colors.RED)
         raise typer.Exit(1)
 
     # Check for .faa files
@@ -1942,13 +1966,13 @@ def classify_genomes(
                 glob.glob(os.path.join(genome_dir, "*.fa"))
 
     if not faa_files:
-        typer.secho(f"❌ Error: No FASTA files (.faa, .fasta, .fa) found in '{genome_dir}'", fg=typer.colors.RED)
+        typer.secho(f"Error: No FASTA files (.faa, .fasta, .fa) found in '{genome_dir}'", fg=typer.colors.RED)
         raise typer.Exit(1)
 
     # Check if data directory exists
     data_dir = os.path.join(script_dir, "data")
     if not os.path.isdir(data_dir):
-        typer.secho("❌ Error: Data directory not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
+        typer.secho("Error: Data directory not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
         typer.secho("Tip: Run 'symclatron setup' to download required data files", fg=typer.colors.YELLOW)
         raise typer.Exit(1)
 
@@ -1996,7 +2020,7 @@ def run_test(
     test_genome_dir = os.path.join(script_dir, "data", "test_genomes")
 
     if not os.path.isdir(test_genome_dir):
-        typer.secho("❌ Error: Test genomes not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
+        typer.secho("Error: Test genomes not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
         raise typer.Exit(1)
 
     print_header()

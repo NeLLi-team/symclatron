@@ -1,0 +1,11 @@
+dist/
+test_output*
+logs/
+data/
+.pixi/
+.vscode/
+__pycache__/
+*.pyc
+*.log
+output/
+bk_*

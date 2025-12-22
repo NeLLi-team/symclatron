@@ -10,7 +10,11 @@ symclatron is a tool that classifies microbial genomes (input is protein FASTA f
 
 ## Installation and quick start
 
-### Step 1: Install `pixi` (Requirement ⚠️)
+Recommended install paths are Pixi (recommended) or Mamba/Conda.
+
+### Option 1: Pixi (recommended)
+
+Install `pixi`:
 
 ```sh
 curl -fsSL https://pixi.sh/install.sh | sh
@@ -18,17 +22,20 @@ curl -fsSL https://pixi.sh/install.sh | sh
 
 More information about `pixi` can be found in the [pixi documentation](https://pixi.sh/).
 
-### Step 2: Install `symclatron`
+Install, setup, and test:
 
 ```sh
 pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 symclatron setup
+symclatron test
 ```
 
-### Test the installation
+### Option 2: Mamba or Conda
 
 ```sh
-symclatron test
+mamba create -n symclatron-0.8.0 -c conda-forge -c bioconda -c https://prefix.dev/astrogenomics symclatron
+mamba run -n symclatron-0.8.0 symclatron setup
+mamba run -n symclatron-0.8.0 symclatron test
 ```
 
 ## Setup data (required)
