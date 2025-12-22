@@ -49,7 +49,7 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 def version_callback(value: bool):
     """Print version information."""
@@ -63,6 +63,11 @@ def _build_shap_explainer(model: Any, data: pd.DataFrame) -> shap.Explainer:
         return shap.TreeExplainer(model)
     except Exception:
         return shap.Explainer(model.predict, data)
+
+def _ensure_xgb_estimator_type(model: Any, estimator_type: str) -> None:
+    """Ensure XGBoost sklearn estimators define _estimator_type for load_model."""
+    if not hasattr(model, "_estimator_type"):
+        model._estimator_type = estimator_type
 
 
 class ResourceMonitor:
@@ -1024,6 +1029,10 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
         # Use path relative to the script's location for loading models
         model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                  f"data/ml_models/{each_model}.json")
+        _ensure_xgb_estimator_type(
+            xgb_model,
+            "regressor" if each_model == "symreg" else "classifier",
+        )
         xgb_model.load_model(model_path)
 
         # Initialize predictions_df for all model types
@@ -1107,6 +1116,7 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
 
     # Load model from JSON
     model = xgb.XGBRegressor()
+    _ensure_xgb_estimator_type(model, "regressor")
     model.load_model(reg_model_file)
 
     # Calculate SHAP values
