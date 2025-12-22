@@ -7,7 +7,7 @@ package:
 
 source:
 - url: https://pypi.org/packages/source/s/symclatron/symclatron-${{ version }}.tar.gz
-  sha256: 84a90ee591ec40cf1ab1b955840297fbc6bd26f928fdeded4844eb2bcf614169
+  sha256: 25e87d79d703e32dd6d44b3f34d8271e9c26734e0fb2989ba4c7d5185978b319
 
 build:
   script:
