@@ -49,13 +49,20 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.6.4"
+__version__ = "0.7.0"
 
 def version_callback(value: bool):
     """Print version information."""
     if value:
         typer.echo(f"symclatron version {__version__}")
         raise typer.Exit()
+
+def _build_shap_explainer(model: Any, data: pd.DataFrame) -> shap.Explainer:
+    """Return a SHAP explainer compatible with XGBoost models across versions."""
+    try:
+        return shap.TreeExplainer(model)
+    except Exception:
+        return shap.Explainer(model.predict, data)
 
 
 class ResourceMonitor:
@@ -1028,7 +1035,7 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
 
             # SHAP calculation only for symreg model
             typer.secho("Computing SHAP values", fg=typer.colors.BRIGHT_GREEN)
-            explainer = shap.Explainer(xgb_model)
+            explainer = _build_shap_explainer(xgb_model, all_tblout_df)
             shap_values = explainer(all_tblout_df)
 
             # Save SHAP values for symreg
@@ -1103,7 +1110,7 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
     model.load_model(reg_model_file)
 
     # Calculate SHAP values
-    explainer = shap.Explainer(model)
+    explainer = _build_shap_explainer(model, X_test)
     shap_values = explainer(X_test)
 
     # Create the feature contribution DataFrame (sum of absolute SHAP values)
