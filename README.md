@@ -33,9 +33,9 @@ symclatron test  # also tests contig (.fna) inputs when available
 ### Option 2: Mamba or Conda
 
 ```sh
-mamba create -n symclatron-0.8.0 -c conda-forge -c bioconda -c https://prefix.dev/astrogenomics symclatron
-mamba run -n symclatron-0.8.0 symclatron setup
-mamba run -n symclatron-0.8.0 symclatron test  # also tests contig (.fna) inputs when available
+mamba create -n symclatron-0.9.0 -c conda-forge -c bioconda -c https://prefix.dev/astrogenomics symclatron
+mamba run -n symclatron-0.9.0 symclatron setup
+mamba run -n symclatron-0.9.0 symclatron test  # also tests contig (.fna) inputs when available
 ```
 
 ## Setup data (required)
