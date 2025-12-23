@@ -27,15 +27,15 @@ Install, setup, and test:
 ```sh
 pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 symclatron setup
-symclatron test  # runs FAA test first, then FNA test (when available)
+symclatron test
 ```
 
 ### Option 2: Mamba or Conda
 
 ```sh
-mamba create -n symclatron-0.9.1 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
-mamba run -n symclatron-0.9.1 symclatron setup
-mamba run -n symclatron-0.9.1 symclatron test  # runs FAA test first, then FNA test (when available)
+mamba create -n symclatron-0.9.2 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
+mamba run -n symclatron-0.9.2 symclatron setup
+mamba run -n symclatron-0.9.2 symclatron test
 ```
 
 ## Setup data (required)
@@ -69,7 +69,7 @@ After install + setup, a quick validation run:
 ```bash
 symclatron --version
 symclatron setup
-symclatron test --mode both  # runs FAA test first, then FNA test
+symclatron test
 ```
 
 Outputs are written under `test_output_symclatron/proteins` and `test_output_symclatron/contigs` (or under `--output-dir` if provided).

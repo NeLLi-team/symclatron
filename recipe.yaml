@@ -1,5 +1,5 @@
 context:
-  version: 0.9.1
+  version: 0.9.2
 
 package:
   name: symclatron
@@ -7,7 +7,7 @@ package:
 
 source:
 - url: https://pypi.org/packages/source/s/symclatron/symclatron-${{ version }}.tar.gz
-  sha256: 560cbbf34f77c0711feea30c61c9b0e0ce60985f9b8f53c857696217e6807805
+  sha256: c0dd5aee4df6e96ec30b5c868cc720e6b2f0fb4c655b4462ee1a80c5b09aeae1
 
 build:
   script:
