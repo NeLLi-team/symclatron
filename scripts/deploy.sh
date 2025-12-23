@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION=""
 DO_GIT_PUSH=0
 DO_GIT_TAG=0
+DO_DATA_BUNDLE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -14,6 +15,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --tag)
       DO_GIT_TAG=1
+      shift
+      ;;
+    --data-bundle|--data)
+      DO_DATA_BUNDLE=1
       shift
       ;;
     -*)
@@ -33,12 +38,25 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $(basename "$0") <version> [--push] [--tag]"
+  echo "Usage: $(basename "$0") <version> [--push] [--tag] [--data-bundle]"
   exit 1
 fi
 
 : "${PYPI_API_TOKEN:?PYPI_API_TOKEN must be set in the environment}"
 : "${PREFIX_API_KEY:?PREFIX_API_KEY must be set in the environment}"
+
+if [[ "$DO_DATA_BUNDLE" -eq 1 && ( "$DO_GIT_PUSH" -ne 1 || "$DO_GIT_TAG" -ne 1 ) ]]; then
+  echo "--data-bundle requires --push and --tag (it uploads to the GitHub Release for the tag)."
+  exit 1
+fi
+
+if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [[ -n "$(git -C "$ROOT_DIR" status --porcelain)" ]]; then
+    echo "Git working tree is not clean. Commit, stash, or ignore changes before running $(basename "$0")."
+    git -C "$ROOT_DIR" status --porcelain
+    exit 1
+  fi
+fi
 
 if ! python -m flit --version >/dev/null 2>&1; then
   echo "flit is required. Install with: python -m pip install flit"
@@ -207,18 +225,61 @@ rattler-build upload prefix --channel astrogenomics --api-key "$PREFIX_API_KEY" 
 if [[ "$DO_GIT_PUSH" -eq 1 ]]; then
   (
     cd "$ROOT_DIR"
-    git add symclatron/__init__.py symclatron/symclatron.py recipe.yaml scripts/deploy.sh
+    git add symclatron/__init__.py symclatron/symclatron.py pyproject.toml recipe.yaml README.md scripts/deploy.sh
     if git diff --cached --quiet; then
       echo "No release changes staged for git commit."
       exit 0
     fi
     git commit -m "Release ${VERSION}"
     if [[ "$DO_GIT_TAG" -eq 1 ]]; then
-      git tag "v${VERSION}"
+      TAG="v${VERSION}"
+      git tag "$TAG"
     fi
     git push origin HEAD
     if [[ "$DO_GIT_TAG" -eq 1 ]]; then
-      git push origin "v${VERSION}"
+      git push origin "$TAG"
+      if command -v gh >/dev/null 2>&1; then
+        if gh auth status >/dev/null 2>&1; then
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub release already exists: ${TAG}"
+          else
+            if ! gh release create "$TAG" --title "$TAG" --generate-notes; then
+              echo "Warning: failed to create GitHub release for ${TAG}"
+            fi
+          fi
+
+          if [[ "$DO_DATA_BUNDLE" -eq 1 ]]; then
+            if [[ ! -d "$ROOT_DIR/data" ]]; then
+              echo "Error: data directory not found at: $ROOT_DIR/data"
+              echo "Tip: run 'symclatron setup' first (or populate data/ before deploying)."
+              exit 1
+            fi
+            "$ROOT_DIR/scripts/build_data_bundle.sh"
+            DATA_TARBALL="$ROOT_DIR/dist/symclatron_db.tar.gz"
+            if [[ ! -f "$DATA_TARBALL" ]]; then
+              echo "Error: expected data bundle not found: $DATA_TARBALL"
+              exit 1
+            fi
+            if ! gh release upload "$TAG" "$DATA_TARBALL" --clobber; then
+              echo "Error: failed to upload data bundle to GitHub Release ${TAG}"
+              exit 1
+            fi
+            echo "[OK] Uploaded data bundle to GitHub Release: ${TAG}"
+          fi
+        else
+          if [[ "$DO_DATA_BUNDLE" -eq 1 ]]; then
+            echo "Error: gh is installed but not authenticated; run 'gh auth login' to upload the data bundle."
+            exit 1
+          fi
+          echo "gh is installed but not authenticated; run 'gh auth login' to enable automatic GitHub Releases."
+        fi
+      else
+        if [[ "$DO_DATA_BUNDLE" -eq 1 ]]; then
+          echo "Error: gh CLI not found; install it to upload the data bundle."
+          exit 1
+        fi
+        echo "gh CLI not found; create a GitHub Release for tag ${TAG} in the GitHub UI."
+      fi
     fi
   )
 fi

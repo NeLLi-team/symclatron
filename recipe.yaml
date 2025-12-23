@@ -34,6 +34,7 @@ requirements:
   - tensorflow-cpu >=2.18.0
   - joblib >=1.4.2
   - pyhmmer >=0.11.1
+  - pyrodigal >=3.6.0
   - psutil >=5.9.0
 
 tests:
@@ -49,7 +50,7 @@ about:
 
     **ML-based classification of microbial symbiotic lifestyles**
 
-    symclatron is a tool that classifies microbial genomes (input is protein FASTA files (`.faa`)) into three symbiotic lifestyle categories:
+    symclatron is a tool that classifies microbial genomes (protein FASTA, or nucleotide FASTA with automatic protein prediction) into three symbiotic lifestyle categories:
 
     - **Free-living**
     - **Symbiont; Host-associated**
@@ -88,7 +89,11 @@ about:
 
     ## Input file requirements
 
-    - **Input file format**: Protein FASTA files (`.faa`)
+    - **Input**: a directory with one genome per file
+    - **Supported FASTA types**:
+      - **Proteins (recommended)**: `.faa`
+      - **Nucleotide contigs/assemblies**: `.fa`, `.fna`, `.fasta` (proteins predicted with `pyrodigal`)
+      - **Nucleotide genes/CDS**: `.ffn`, `.fnn` (translated in-frame)
     - **Quality**: Complete or near-complete genomes recommended, but good performance for MQ MAGs are expected
 
     ### Classify your genomes
@@ -120,7 +125,9 @@ about:
 
     **Options:**
 
-    - `--genome-dir, -i`: Directory containing genome FASTA files (.faa) [default: input_genomes]
+    - `--genome-dir, -i`: Directory (or FASTA file) containing genome inputs (.faa/.fa/.fna/.fasta/.ffn/.fnn) [default: input_genomes]
+    - `--input-kind`: Force input kind: `auto`, `proteins`, `genes`, `contigs` [default: auto]
+    - `--input-ext`: Only include files with these extensions (repeatable), e.g. `--input-ext .fna`
     - `--output-dir, -o`: Output directory for results [default: output_symclatron]
     - `--keep-tmp`: Keep temporary files for debugging
     - `--threads, -t`: Number of threads for HMMER searches [default: 2]
@@ -181,7 +188,7 @@ about:
     Pull the latest container:
 
     ```bash
-    apptainer pull docker://docker.io/jvillada/symclatron:latest
+    apptainer pull docker://docker.io/astrogenomics/symclatron:latest
     ```
 
     ## Citation

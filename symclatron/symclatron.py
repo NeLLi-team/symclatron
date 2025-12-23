@@ -2,6 +2,8 @@
 
 # Standard library imports
 import glob
+import gzip
+import itertools
 import json
 import logging
 import os
@@ -51,6 +53,325 @@ Lawrence Berkeley National Laboratory (LBNL)
 
 __version__ = "0.8.0"
 
+def _abs_path(path: Union[str, Path]) -> str:
+    """Return an absolute path without requiring it to exist."""
+    return os.path.abspath(os.path.expanduser(str(path)))
+
+SUPPORTED_NUCLEOTIDE_SUFFIXES = {
+    ".fa",
+    ".fas",
+    ".fasta",
+    ".fna",
+    ".fnn",
+    ".ffn",
+    ".fa.gz",
+    ".fas.gz",
+    ".fasta.gz",
+    ".fna.gz",
+    ".fnn.gz",
+    ".ffn.gz",
+}
+
+SUPPORTED_PROTEIN_SUFFIXES = {
+    ".faa",
+    ".faa.gz",
+    ".aa",
+    ".aa.fasta",
+    ".pep",
+    ".pep.fasta",
+    ".protein.faa",
+}
+
+
+def _detect_supported_suffix(path: Path) -> Optional[str]:
+    name = path.name.lower()
+    suffixes = sorted(
+        SUPPORTED_NUCLEOTIDE_SUFFIXES | SUPPORTED_PROTEIN_SUFFIXES,
+        key=len,
+        reverse=True,
+    )
+    for suffix in suffixes:
+        if name.endswith(suffix):
+            return suffix
+    return None
+
+
+def _open_text(path: Path):
+    if path.name.lower().endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8", errors="ignore")
+    return open(path, "r", encoding="utf-8", errors="ignore")
+
+
+def _safe_extract_tar(archive_path: str, dest_dir: str) -> None:
+    dest_root = os.path.realpath(dest_dir)
+    with tarfile.open(archive_path) as tar:
+        for member in tar.getmembers():
+            member_path = os.path.realpath(os.path.join(dest_root, member.name))
+            if not (member_path == dest_root or member_path.startswith(dest_root + os.sep)):
+                raise RuntimeError(f"Unsafe path detected in tar archive: {member.name}")
+        tar.extractall(dest_root)  # noqa: S202 - path traversal protected above
+
+
+def _parse_fasta(path: Path):
+    header: Optional[str] = None
+    chunks: List[str] = []
+
+    with _open_text(path) as handle:
+        for line in handle:
+            line = line.rstrip()
+            if not line:
+                continue
+            if line.startswith(">"):
+                if header is not None:
+                    yield header, "".join(chunks)
+                header = line[1:].strip() or "sequence"
+                chunks = []
+            else:
+                chunks.append(line.strip())
+        if header is not None:
+            yield header, "".join(chunks)
+
+
+def _detect_sequence_type(fasta_path: Path) -> str:
+    protein_letters = set("ABCDEFGHIKLMNPQRSTVWXYZ*")  # exclude J/O/U (rare)
+    nucleotide_letters = set("ACGTRYKMSWBDHVN-.U")
+
+    observed_protein = 0
+    observed_nucleotide = 0
+
+    with _open_text(fasta_path) as handle:
+        for line in handle:
+            if line.startswith(">"):
+                continue
+            seq = line.strip().upper()
+            if not seq:
+                continue
+            observed_protein += sum(ch in protein_letters for ch in seq)
+            observed_nucleotide += sum(ch in nucleotide_letters for ch in seq)
+            if observed_protein + observed_nucleotide >= 2000:
+                break
+
+    if observed_protein == 0 and observed_nucleotide == 0:
+        return "unknown"
+
+    if observed_protein > observed_nucleotide:
+        return "protein"
+    return "nucleotide"
+
+
+def _derive_genome_id(path: Path) -> str:
+    name = path.name
+    if name.endswith(".gz"):
+        name = name[:-3]
+    return Path(name).stem.replace(" ", "_")
+
+
+def _normalize_input_extensions(values: Optional[List[str]]) -> List[str]:
+    if not values:
+        return []
+
+    normalized: List[str] = []
+    for raw_value in values:
+        for chunk in raw_value.split(","):
+            value = chunk.strip()
+            if not value:
+                continue
+            if value.startswith("*."):
+                value = value[1:]
+            if not value.startswith("."):
+                value = "." + value
+            value = value.lower()
+            normalized.append(value)
+            if not value.endswith(".gz"):
+                normalized.append(value + ".gz")
+
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for ext in normalized:
+        if ext in seen:
+            continue
+        seen.add(ext)
+        deduped.append(ext)
+    return deduped
+
+
+def _normalize_input_kind(value: str) -> str:
+    kind = (value or "").strip().lower()
+    if kind in {"auto"}:
+        return "auto"
+    if kind in {"protein", "proteins", "prot", "aa", "pep", "peptides"}:
+        return "proteins"
+    if kind in {"gene", "genes", "cds"}:
+        return "genes"
+    if kind in {"contig", "contigs", "assembly", "assemblies", "genome", "genomes"}:
+        return "contigs"
+    raise ValueError(f"Unknown input kind: {value!r}")
+
+
+def _list_input_fasta_files(input_path: str, input_ext: Optional[List[str]] = None) -> List[Path]:
+    path = Path(input_path)
+    if not path.exists():
+        return []
+
+    normalized_ext = _normalize_input_extensions(input_ext)
+
+    if path.is_file():
+        if normalized_ext and not path.name.lower().endswith(tuple(normalized_ext)):
+            return []
+        return [path]
+
+    if not path.is_dir():
+        return []
+
+    entries = [entry for entry in path.iterdir() if entry.is_file()]
+    if normalized_ext:
+        return sorted([entry for entry in entries if entry.name.lower().endswith(tuple(normalized_ext))])
+
+    return sorted([entry for entry in entries if _detect_supported_suffix(entry) is not None])
+
+
+def _infer_nucleotide_kind(fasta_path: Path) -> str:
+    suffix = _detect_supported_suffix(fasta_path) or ""
+    if suffix in {".ffn", ".fnn", ".ffn.gz", ".fnn.gz"}:
+        return "genes"
+
+    stop_codons = {"TAA", "TAG", "TGA"}
+    in_frame = 0
+    no_internal_stops = 0
+    lengths: List[int] = []
+
+    sampled = 0
+    for header, sequence in itertools.islice(_parse_fasta(fasta_path), 25):
+        del header
+        seq = re.sub(r"\s+", "", sequence).upper().replace("U", "T")
+        if not seq:
+            continue
+        sampled += 1
+        lengths.append(len(seq))
+        if len(seq) % 3 == 0:
+            in_frame += 1
+        codon_count = max(1, len(seq) // 3)
+        stops = 0
+        for i in range(0, len(seq) - 2, 3):
+            if seq[i:i+3] in stop_codons:
+                stops += 1
+        if stops > 0 and seq[-3:] in stop_codons:
+            stops -= 1
+        if stops == 0:
+            no_internal_stops += 1
+        if sampled >= 25:
+            break
+
+    if sampled == 0:
+        return "contigs"
+
+    lengths_sorted = sorted(lengths)
+    median_len = lengths_sorted[len(lengths_sorted) // 2]
+    in_frame_frac = in_frame / sampled
+    no_stop_frac = no_internal_stops / sampled
+
+    if median_len <= 5000 and in_frame_frac >= 0.8 and no_stop_frac >= 0.8:
+        return "genes"
+    return "contigs"
+
+
+def _translate_genes_to_proteins(nucleotide_fasta: Path, output_faa: Path) -> Dict[str, object]:
+    codon_table = {
+        "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
+        "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
+        "TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*",
+        "TGT": "C", "TGC": "C", "TGA": "*", "TGG": "W",
+        "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
+        "CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
+        "CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
+        "CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
+        "ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M",
+        "ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T",
+        "AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K",
+        "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
+        "GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
+        "GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
+        "GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
+        "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G",
+    }
+    start_codons = {"ATG", "GTG", "TTG"}
+    translated = 0
+    sequences = 0
+
+    output_faa.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_faa, "w", encoding="utf-8") as out_handle:
+        for header, sequence in _parse_fasta(nucleotide_fasta):
+            sequences += 1
+            seq = re.sub(r"\s+", "", sequence).upper().replace("U", "T")
+            if len(seq) < 3:
+                continue
+
+            protein: List[str] = []
+            for i in range(0, len(seq) - 2, 3):
+                codon = seq[i:i+3]
+                aa = codon_table.get(codon, "X")
+                if aa == "*":
+                    if i >= len(seq) - 3:
+                        break
+                    aa = "X"
+                if i == 0 and codon in start_codons:
+                    aa = "M"
+                protein.append(aa)
+
+            prot = "".join(protein).rstrip("X")
+            if not prot:
+                continue
+
+            token = f"gene_{translated + 1}"
+            out_handle.write(f">{token} {header}\n")
+            out_handle.write(prot + "\n")
+            translated += 1
+
+    return {"genes": sequences, "proteins": translated, "proteins_path": str(output_faa)}
+
+
+def _predict_proteins_with_pyrodigal(contigs_fasta: Path, output_faa: Path) -> Dict[str, object]:
+    try:
+        import pyrodigal  # type: ignore
+    except ImportError as exc:
+        typer.secho(
+            "Error: pyrodigal is required for contig FASTA inputs (.fa/.fna/.fasta). "
+            "Install it with 'pip install pyrodigal' or via your conda/pixi environment.",
+            fg=typer.colors.BRIGHT_RED,
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+    finder = pyrodigal.GeneFinder(meta=True, mask=True)
+    genes_total = 0
+    contigs = 0
+
+    output_faa.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_faa, "w", encoding="utf-8") as protein_handle:
+        for header, sequence in _parse_fasta(contigs_fasta):
+            contigs += 1
+            if not sequence:
+                continue
+            genes = finder.find_genes(sequence)
+            if not genes:
+                continue
+            genes_total += len(genes)
+            genes.write_translations(
+                protein_handle,
+                sequence_id=header,
+                translation_table=11,
+                include_stop=False,
+                full_id=True,
+            )
+
+    return {
+        "meta_mode": True,
+        "translation_table": 11,
+        "contigs": contigs,
+        "genes": genes_total,
+        "proteins_path": str(output_faa),
+    }
+
 def version_callback(value: bool):
     """Print version information."""
     if value:
@@ -79,7 +400,8 @@ class ResourceMonitor:
     """
 
     def __init__(self, log_dir: Optional[str] = None):
-        self.log_dir = log_dir or os.path.join(os.getcwd(), "logs")
+        log_dir = log_dir or os.path.join(os.getcwd(), "logs")
+        self.log_dir = _abs_path(log_dir)
         os.makedirs(self.log_dir, exist_ok=True)
 
         # Create timestamped log file
@@ -379,13 +701,17 @@ def init_message_classify() -> None:
     return typer.echo(message)
 
 
-def extract_data(force: bool = False) -> None:
+def extract_data(force: bool = False, data_url: Optional[str] = None) -> None:
     """Download and extract the symclatron data archive."""
     typer.secho("Setting up symclatron data", fg=typer.colors.BRIGHT_GREEN)
 
-    # URL for the data archive
-    data_url = "https://portal.nersc.gov/cfs/nelli/symclatron_db.tar.gz"
-    data_dir = os.path.join(script_dir, "data")
+    default_urls = [
+        f"https://github.com/NeLLi-team/symclatron/releases/download/v{__version__}/symclatron_db.tar.gz",
+        "https://github.com/NeLLi-team/symclatron/releases/latest/download/symclatron_db.tar.gz",
+        "https://portal.nersc.gov/cfs/nelli/symclatron_db.tar.gz",
+    ]
+    candidate_urls = [data_url] if data_url else default_urls
+    data_dir = _abs_path(os.path.join(script_dir, "data"))
     typer.secho(f"Target data directory: {data_dir}", fg=typer.colors.BRIGHT_BLUE)
 
     # Check if data directory already exists
@@ -403,22 +729,37 @@ def extract_data(force: bool = False) -> None:
         shutil.rmtree(data_dir)
 
     # Create a temporary file path
-    tmp_download_path = os.path.join(script_dir, "symclatron_db.tar.gz")
+    tmp_download_path = _abs_path(os.path.join(script_dir, "symclatron_db.tar.gz"))
     typer.secho(
         f"Temporary download path: {tmp_download_path}",
         fg=typer.colors.BRIGHT_BLUE,
     )
 
     try:
-        # Download the file
-        typer.secho(f"Downloading data from {data_url}...", fg=typer.colors.BRIGHT_GREEN)
-        urllib.request.urlretrieve(data_url, tmp_download_path)
+        used_url: Optional[str] = None
+        last_error: Optional[Exception] = None
+        for url in candidate_urls:
+            try:
+                typer.secho(f"Downloading data from {url}...", fg=typer.colors.BRIGHT_GREEN)
+                urllib.request.urlretrieve(url, tmp_download_path)
+                used_url = url
+                break
+            except Exception as exc:  # noqa: BLE001 - show and try next URL
+                last_error = exc
+                typer.secho(
+                    f"Warning: failed to download from {url}: {exc}",
+                    fg=typer.colors.BRIGHT_YELLOW,
+                    err=True,
+                )
+                if os.path.exists(tmp_download_path):
+                    os.remove(tmp_download_path)
+
+        if used_url is None:
+            raise RuntimeError(f"All downloads failed. Last error: {last_error}")
 
         # Extract the archive
         typer.secho("Extracting data...", fg=typer.colors.BRIGHT_GREEN)
-        data_tar = tarfile.open(tmp_download_path)
-        data_tar.extractall(script_dir)
-        data_tar.close()
+        _safe_extract_tar(tmp_download_path, script_dir)
 
         # Move the data directory to the correct location
         if os.path.isdir(os.path.join(script_dir, "symclatron_db", "data")):
@@ -444,8 +785,9 @@ def extract_data(force: bool = False) -> None:
             err=True,
         )
         # If the download fails, let the user know they can manually download and extract
+        urls_text = "\n".join(f"  - {url}" for url in candidate_urls)
         typer.secho(
-            f"\nPlease download the data manually from {data_url} and extract it to {os.path.join(script_dir, 'data')}",
+            f"\nPlease download the data manually from one of:\n{urls_text}\n\nand extract it to {data_dir}",
             fg=typer.colors.BRIGHT_YELLOW,
         )
         exit(1)
@@ -512,16 +854,58 @@ def create_tmp_dir(logger: logging.Logger, overwrite: bool = False) -> None:
     logger.debug("Temporary directory created successfully")
 
 
-def copy_genomes_to_tmp_dir() -> str:
-    """Copy genomes to a temporary directory.
+def copy_genomes_to_tmp_dir(input_kind: str = "auto", input_ext: Optional[List[str]] = None) -> str:
+    """Prepare input genomes as protein FASTA files in a temporary directory.
 
     Returns:
-        str: Path to the temporary directory containing the genomes.
+        str: Path to the temporary directory containing per-genome protein FASTA files.
     """
     tmp_genome_dir_path = f"{tmp_dir_path}/renamed_genomes"
     os.mkdir(tmp_genome_dir_path)
-    for each_file in glob.glob(genomedir + "/*.faa"):
-        shutil.copy(each_file, tmp_genome_dir_path)
+
+    logger = logging.getLogger("symclatron")
+    try:
+        normalized_kind = _normalize_input_kind(input_kind)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    input_files = _list_input_fasta_files(genomedir, input_ext)
+    if not input_files:
+        raise SystemExit(f"No supported FASTA files found in input path: {genomedir}")
+
+    for input_path in input_files:
+        genome_id = _derive_genome_id(input_path)
+        output_faa = Path(tmp_genome_dir_path) / f"{genome_id}.faa"
+
+        seq_type = _detect_sequence_type(input_path)
+        if normalized_kind == "proteins" and seq_type != "protein":
+            raise SystemExit(f"Expected protein FASTA but got nucleotide: {_abs_path(input_path)}")
+        if normalized_kind in {"genes", "contigs"} and seq_type != "nucleotide":
+            raise SystemExit(f"Expected nucleotide FASTA but got protein: {_abs_path(input_path)}")
+
+        if seq_type == "protein":
+            logger.info(f"Using protein FASTA: {_abs_path(input_path)}")
+            if input_path.name.lower().endswith(".gz"):
+                with _open_text(input_path) as src, open(output_faa, "w", encoding="utf-8") as dst:
+                    shutil.copyfileobj(src, dst)
+            else:
+                shutil.copy2(input_path, output_faa)
+            continue
+
+        if seq_type == "nucleotide":
+            kind = normalized_kind if normalized_kind in {"genes", "contigs"} else _infer_nucleotide_kind(input_path)
+            logger.info(f"Preparing proteins from nucleotide {kind}: {_abs_path(input_path)}")
+            if kind == "genes":
+                info = _translate_genes_to_proteins(input_path, output_faa)
+                if int(info.get("proteins", 0)) == 0:
+                    raise SystemExit(f"No proteins translated from gene FASTA: {_abs_path(input_path)}")
+            else:
+                info = _predict_proteins_with_pyrodigal(input_path, output_faa)
+                if int(info.get("genes", 0)) == 0:
+                    raise SystemExit(f"No genes predicted from contig FASTA: {_abs_path(input_path)}")
+            continue
+
+        raise SystemExit(f"Could not determine FASTA type (nucleotide/protein): {_abs_path(input_path)}")
     return tmp_genome_dir_path
 
 
@@ -1465,7 +1849,7 @@ def predict_new_data(new_data: pd.DataFrame, model: Any = None, scaler: Any = No
     return result_df
 
 
-def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
+def setup_logging(log_file: Optional[str] = None, verbose: bool = False) -> logging.Logger:
     """
     Configure logging for the application.
 
@@ -1476,7 +1860,8 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
     logging.Logger: Configured logger object
     """
     logger = logging.getLogger('symclatron')
-    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
 
     # Create formatters
     file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -1484,7 +1869,7 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
 
     # Create console handler
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
     console_handler.setFormatter(console_formatter)
 
     # Add console handler to logger
@@ -1492,6 +1877,7 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
 
     # If log file is provided, create file handler
     if log_file:
+        log_file = _abs_path(log_file)
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(logging.DEBUG)  # DEBUG level for file (more verbose)
         file_handler.setFormatter(file_formatter)
@@ -1503,7 +1889,12 @@ def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
     return logger
 
 
-def validate_input(genome_dir: str, logger: logging.Logger) -> bool:
+def validate_input(
+    genome_dir: str,
+    logger: logging.Logger,
+    input_kind: str = "auto",
+    input_ext: Optional[List[str]] = None,
+) -> bool:
     """
     Validate input data before processing.
 
@@ -1514,49 +1905,115 @@ def validate_input(genome_dir: str, logger: logging.Logger) -> bool:
     Returns:
     bool: True if validation passes, False otherwise
     """
+    genome_dir = _abs_path(genome_dir)
+    try:
+        normalized_kind = _normalize_input_kind(input_kind)
+    except ValueError as exc:
+        logger.error(str(exc))
+        typer.secho(f"[Error] {exc}", fg=typer.colors.BRIGHT_RED, err=True)
+        raise typer.Exit(1) from exc
     logger.info("Validating input data...")
 
     # Check if the genome directory exists
     if not os.path.exists(genome_dir):
-        logger.error(f"Genome directory '{genome_dir}' does not exist")
+        logger.error(f"Input path '{genome_dir}' does not exist")
         typer.secho(
-            f"[Error] Genome directory '{genome_dir}' does not exist",
+            f"[Error] Input path '{genome_dir}' does not exist",
             fg=typer.colors.BRIGHT_RED,
             err=True,
         )
         exit(1)
 
-    # Check if the directory contains any .faa files
-    faa_files = glob.glob(os.path.join(genome_dir, "*.faa"))
-    if not faa_files:
-        logger.error(f"No .faa files found in '{genome_dir}'")
+    input_files = _list_input_fasta_files(genome_dir, input_ext)
+    if not input_files:
+        supported = sorted(SUPPORTED_NUCLEOTIDE_SUFFIXES | SUPPORTED_PROTEIN_SUFFIXES)
+        logger.error(f"No supported FASTA files found in '{genome_dir}'")
         typer.secho(
-            f"[Error] No .faa files found in '{genome_dir}'",
+            f"[Error] No supported FASTA files found in '{genome_dir}'.",
             fg=typer.colors.BRIGHT_RED,
             err=True,
         )
+        if input_ext:
+            typer.secho(
+                f"Requested extensions: {', '.join(_normalize_input_extensions(input_ext))}",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+        else:
+            typer.secho(
+                f"Supported suffixes: {', '.join(supported)}",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
         exit(1)
 
-    # Validate each .faa file to ensure it's a valid FASTA file
+    # Validate each input file to ensure it's a valid FASTA file
     invalid_files = []
     empty_files = []
+    duplicate_ids = []
+    kind_mismatch_files = []
+    genome_ids_seen: set[str] = set()
 
-    logger.info(f"Found {len(faa_files)} genome files to validate")
-    for faa_file in faa_files:
-        file_size = os.path.getsize(faa_file)
+    logger.info(f"Found {len(input_files)} genome files to validate")
+    for fasta_path in input_files:
+        genome_id = _derive_genome_id(fasta_path)
+        if genome_id in genome_ids_seen:
+            duplicate_ids.append(genome_id)
+        genome_ids_seen.add(genome_id)
+
+        file_size = fasta_path.stat().st_size
 
         # Check if file is empty
         if file_size == 0:
-            empty_files.append(os.path.basename(faa_file))
+            empty_files.append(_abs_path(fasta_path))
             continue
 
         # Check if file is a valid FASTA file
-        with open(faa_file, 'r') as f:
+        with _open_text(fasta_path) as f:
             first_line = f.readline().strip()
             if not first_line.startswith('>'):
-                invalid_files.append(os.path.basename(faa_file))
+                invalid_files.append(_abs_path(fasta_path))
+                continue
+
+        seq_type = _detect_sequence_type(fasta_path)
+        if seq_type == "unknown":
+            invalid_files.append(_abs_path(fasta_path))
+            continue
+
+        if normalized_kind == "proteins" and seq_type != "protein":
+            kind_mismatch_files.append(_abs_path(fasta_path))
+            continue
+        if normalized_kind in {"genes", "contigs"} and seq_type != "nucleotide":
+            kind_mismatch_files.append(_abs_path(fasta_path))
+            continue
+
+        if seq_type == "nucleotide":
+            kind = normalized_kind if normalized_kind in {"genes", "contigs"} else _infer_nucleotide_kind(fasta_path)
+            logger.info(f"Detected nucleotide {kind}: {_abs_path(fasta_path)}")
+        else:
+            logger.info(f"Detected protein FASTA: {_abs_path(fasta_path)}")
 
     # Report and exit if any files are invalid
+    if duplicate_ids:
+        dupes = ", ".join(sorted(set(duplicate_ids)))
+        logger.error(f"Duplicate genome ids detected (by filename stem): {dupes}")
+        typer.secho(
+            f"[Error] Duplicate genome ids detected (by filename stem): {dupes}",
+            fg=typer.colors.BRIGHT_RED,
+            err=True,
+        )
+        exit(1)
+
+    if kind_mismatch_files:
+        expected = normalized_kind
+        logger.error(f"Input kind mismatch (expected {expected}) for: {', '.join(kind_mismatch_files)}")
+        typer.secho(
+            f"[Error] Input kind mismatch (expected {expected}) for: {', '.join(kind_mismatch_files)}",
+            fg=typer.colors.BRIGHT_RED,
+            err=True,
+        )
+        exit(1)
+
     if empty_files:
         logger.error(f"Found {len(empty_files)} empty files: {', '.join(empty_files)}")
         typer.secho(
@@ -1575,7 +2032,7 @@ def validate_input(genome_dir: str, logger: logging.Logger) -> bool:
         )
         exit(1)
 
-    logger.info(f"All {len(faa_files)} genome files are valid")
+    logger.info(f"All {len(input_files)} genome files are valid")
     return True
 
 
@@ -1587,6 +2044,7 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
     output_dir (str): Directory where results are saved
     logger (logging.Logger): Logger for logging messages
     """
+    output_dir = _abs_path(output_dir)
     try:
         # Load the neural network classification results
         results_file = f"{output_dir}/symclatron_results.tsv"
@@ -1681,6 +2139,9 @@ def classify(
     deltmp: bool = True,
     ncpus: int = 2,
     quiet: bool = False,
+    verbose: bool = False,
+    input_kind: str = "auto",
+    input_ext: Optional[List[str]] = None,
 ) -> None:
     """
     Main classification function.
@@ -1693,11 +2154,16 @@ def classify(
     - Generating final reports.
 
     Parameters:
-    genome_dir (str): Directory containing genome FASTA files.
+    genome_dir (str): Input directory or FASTA file path.
     save_dir (str): Directory to save results.
     deltmp (bool): Whether to delete temporary files.
+    input_kind (str): Force input kind: auto|contigs|genes|proteins.
+    input_ext (list[str] | None): Optional file extension filter when genome_dir is a directory.
     """
     start_time = time.time()
+
+    save_dir = _abs_path(save_dir)
+    genome_dir = _abs_path(genome_dir)
 
     global savedir
     savedir = save_dir
@@ -1716,7 +2182,10 @@ def classify(
         log_file = f"{savedir}/symclatron_classification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         resource_log_file = f"{savedir}/symclatron_resources_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
-    logger = setup_logging(log_file)
+    log_file = _abs_path(log_file)
+    resource_log_file = _abs_path(resource_log_file)
+
+    logger = setup_logging(log_file, verbose=verbose)
 
     # Initialize resource monitoring using log directory
     resource_monitor = ResourceMonitor(os.path.dirname(resource_log_file))
@@ -1727,7 +2196,7 @@ def classify(
         greetings()
         init_message_classify()
 
-    script_path = Path(__file__)
+    script_path = Path(os.path.abspath(__file__))
     script_dir = script_path.parent
     global data_folder_path
     data_folder_path = Path(script_dir) / "data"
@@ -1739,13 +2208,13 @@ def classify(
 
     global genomedir
     genomedir = genome_dir
-    logger.info(f"Using genomes from: {genomedir}")
+    logger.info(f"Using input path: {genomedir}")
 
     # Validate input data before processing
-    validate_input(genome_dir, logger)
+    validate_input(genome_dir, logger, input_kind=input_kind, input_ext=input_ext)
 
     logger.info("Copying genomes to temporary directory")
-    tmp_genomes_path = copy_genomes_to_tmp_dir()
+    tmp_genomes_path = copy_genomes_to_tmp_dir(input_kind=input_kind, input_ext=input_ext)
 
     logger.info("Renaming genomes")
     rename_genomes(tmp_genome_dir_path=tmp_genomes_path)
@@ -1881,6 +2350,12 @@ def setup_data(
         "--quiet",
         "-q",
         help="Suppress progress messages"
+    ),
+    data_url: Optional[str] = typer.Option(
+        None,
+        "--data-url",
+        envvar="SYMCLATRON_DATA_URL",
+        help="Override data bundle URL (default: GitHub Releases, with NERSC fallback)",
     )
 ):
     """
@@ -1894,7 +2369,7 @@ def setup_data(
         init_message_setup()
 
     # Check if data directory already exists and handle force flag
-    data_dir = os.path.join(script_dir, "data")
+    data_dir = _abs_path(os.path.join(script_dir, "data"))
     if os.path.isdir(data_dir) and not force:
         if not quiet:
             typer.secho(
@@ -1903,7 +2378,7 @@ def setup_data(
             )
         return
 
-    extract_data(force=force)
+    extract_data(force=force, data_url=data_url)
 
     if not quiet:
         typer.secho("Setup completed successfully.", fg=typer.colors.GREEN, bold=True)
@@ -1916,7 +2391,17 @@ def classify_genomes(
         "input_genomes",
         "--genome-dir",
         "-i",
-        help="Directory containing genome FASTA files (.faa)"
+        help="Directory (or FASTA file) containing genome inputs (.faa/.fa/.fna/.fasta/.ffn/.fnn)"
+    ),
+    input_kind: str = typer.Option(
+        "auto",
+        "--input-kind",
+        help="Force input kind: auto|contigs|genes|proteins",
+    ),
+    input_ext: List[str] = typer.Option(
+        [],
+        "--input-ext",
+        help="Only include files with these extensions (repeatable), e.g. --input-ext .fna",
     ),
     output_dir: str = typer.Option(
         "output_symclatron",
@@ -1952,25 +2437,34 @@ def classify_genomes(
     """
     Classify genomes into symbiotic lifestyle categories.
 
-    This command processes protein FASTA files (.faa) and classifies each genome
-    into one of three categories based on their predicted symbiotic lifestyle.
+    This command accepts either protein FASTA inputs (.faa) or nucleotide FASTA
+    inputs (.fa/.fna/.fasta/.ffn/.fnn). For nucleotide inputs, symclatron will
+    predict/translate proteins before running the classifier.
     """
-    # Validate input directory
-    if not os.path.isdir(genome_dir):
-        typer.secho(f"Error: Genome directory '{genome_dir}' does not exist", fg=typer.colors.RED)
+    genome_dir = _abs_path(genome_dir)
+    output_dir = _abs_path(output_dir)
+
+    try:
+        normalized_kind = _normalize_input_kind(input_kind)
+    except ValueError as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(1) from exc
+
+    if not os.path.exists(genome_dir):
+        typer.secho(f"Error: Input path '{genome_dir}' does not exist", fg=typer.colors.RED)
         raise typer.Exit(1)
 
-    # Check for .faa files
-    faa_files = glob.glob(os.path.join(genome_dir, "*.faa")) + \
-                glob.glob(os.path.join(genome_dir, "*.fasta")) + \
-                glob.glob(os.path.join(genome_dir, "*.fa"))
-
-    if not faa_files:
-        typer.secho(f"Error: No FASTA files (.faa, .fasta, .fa) found in '{genome_dir}'", fg=typer.colors.RED)
+    input_files = _list_input_fasta_files(genome_dir, input_ext or None)
+    if not input_files:
+        extra = f" (extensions: {', '.join(_normalize_input_extensions(input_ext))})" if input_ext else ""
+        typer.secho(
+            f"Error: No supported FASTA files found in '{genome_dir}'{extra}",
+            fg=typer.colors.RED,
+        )
         raise typer.Exit(1)
 
     # Check if data directory exists
-    data_dir = os.path.join(script_dir, "data")
+    data_dir = _abs_path(os.path.join(script_dir, "data"))
     if not os.path.isdir(data_dir):
         typer.secho("Error: Data directory not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
         typer.secho("Tip: Run 'symclatron setup' to download required data files", fg=typer.colors.YELLOW)
@@ -1979,10 +2473,11 @@ def classify_genomes(
     if not quiet:
         print_header()
         init_message_classify()
-        typer.secho(f"Input directory: {genome_dir}", fg=typer.colors.BLUE)
+        typer.secho(f"Input path: {genome_dir}", fg=typer.colors.BLUE)
         typer.secho(f"Output directory: {output_dir}", fg=typer.colors.BLUE)
         typer.secho(f"Threads: {threads}", fg=typer.colors.BLUE)
-        typer.secho(f"Found {len(faa_files)} genome files", fg=typer.colors.BLUE)
+        typer.secho(f"Input kind: {normalized_kind}", fg=typer.colors.BLUE)
+        typer.secho(f"Found {len(input_files)} genome files", fg=typer.colors.BLUE)
 
         if keep_tmp:
             typer.secho("Temporary files will be preserved", fg=typer.colors.YELLOW)
@@ -1994,6 +2489,9 @@ def classify_genomes(
         deltmp=not keep_tmp,
         ncpus=threads,
         quiet=quiet,  # Pass quiet parameter to avoid redundant headers
+        verbose=verbose,
+        input_kind=normalized_kind,
+        input_ext=input_ext or None,
     )
 
 
@@ -2003,6 +2501,11 @@ def run_test(
         False,
         "--keep-tmp",
         help="Keep temporary files after test"
+    ),
+    mode: str = typer.Option(
+        "both",
+        "--mode",
+        help="Test mode: proteins|contigs|both",
     ),
     output_dir: str = typer.Option(
         "test_output_symclatron",
@@ -2017,23 +2520,66 @@ def run_test(
     This command runs a quick test using the provided test genomes
     to verify that symclatron is working correctly.
     """
-    test_genome_dir = os.path.join(script_dir, "data", "test_genomes")
+    output_dir = _abs_path(output_dir)
+    test_genomes_root = _abs_path(os.path.join(script_dir, "data", "test_genomes"))
+    test_proteins_dir = _abs_path(os.path.join(test_genomes_root, "faa"))
+    test_contigs_dir = _abs_path(os.path.join(test_genomes_root, "fna"))
 
-    if not os.path.isdir(test_genome_dir):
+    if not os.path.isdir(test_genomes_root):
         typer.secho("Error: Test genomes not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
         raise typer.Exit(1)
 
     print_header()
-    typer.secho("Running test with provided genomes...", fg=typer.colors.BLUE, bold=True)
+    normalized_mode = (mode or "").strip().lower()
+    if normalized_mode not in {"proteins", "contigs", "both"}:
+        typer.secho("Error: --mode must be one of: proteins, contigs, both", fg=typer.colors.RED)
+        raise typer.Exit(1)
 
-    classify_genomes(
-        genome_dir=test_genome_dir,
-        output_dir=output_dir,
-        keep_tmp=keep_tmp,
-        threads=2,
-        quiet=True,  # Suppress redundant headers since we already printed them
-        verbose=False
-    )
+    if normalized_mode in {"proteins", "both"}:
+        protein_input_dir: Optional[str] = None
+        for candidate_dir in [test_proteins_dir, test_genomes_root]:
+            if _list_input_fasta_files(candidate_dir, [".faa"]):
+                protein_input_dir = candidate_dir
+                break
+        if protein_input_dir is None:
+            typer.secho(
+                "Error: Protein test genomes not found. Run 'symclatron setup' first.",
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(1)
+        protein_out = output_dir if normalized_mode == "proteins" else str(Path(output_dir) / "proteins")
+        typer.secho("Running test (protein FASTA)...", fg=typer.colors.BLUE, bold=True)
+        classify_genomes(
+            genome_dir=protein_input_dir,
+            input_kind="proteins",
+            input_ext=[".faa"],
+            output_dir=protein_out,
+            keep_tmp=keep_tmp,
+            threads=2,
+            quiet=True,  # Suppress redundant headers since we already printed them
+            verbose=False
+        )
+
+    if normalized_mode in {"contigs", "both"}:
+        if not os.path.isdir(test_contigs_dir):
+            message = "Contig test genomes not found. Re-run 'symclatron setup' (newer data bundle required)."
+            if normalized_mode == "contigs":
+                typer.secho(f"Error: {message}", fg=typer.colors.RED)
+                raise typer.Exit(1)
+            typer.secho(f"Warning: {message}", fg=typer.colors.YELLOW)
+            return
+        contig_out = output_dir if normalized_mode == "contigs" else str(Path(output_dir) / "contigs")
+        typer.secho("Running test (contig FASTA -> protein prediction)...", fg=typer.colors.BLUE, bold=True)
+        classify_genomes(
+            genome_dir=test_contigs_dir,
+            input_kind="contigs",
+            input_ext=[".fna"],
+            output_dir=contig_out,
+            keep_tmp=keep_tmp,
+            threads=2,
+            quiet=True,
+            verbose=False
+        )
 
 
 

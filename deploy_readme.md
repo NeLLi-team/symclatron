@@ -6,6 +6,7 @@ This doc summarizes the release flow for PyPI + prefix.dev (pixi) and the GitHub
 
 - `flit` and `twine` available in the Python environment used by `pixi run`
 - `rattler-build` available on PATH
+- Optional: `gh` (GitHub CLI) to create GitHub Releases automatically
 - Environment variables:
   - `PYPI_API_TOKEN`
   - `PREFIX_API_KEY`
@@ -28,8 +29,8 @@ git stash -u
 ## Standard release (recommended)
 
 ```bash
-VERSION="0.8.0"
-pixi run ./scripts/deploy.sh "$VERSION" --push --tag
+VERSION=0.9.0
+pixi run ./scripts/deploy.sh "$VERSION" --push --tag --data-bundle
 ```
 
 What it does:
@@ -38,6 +39,48 @@ What it does:
 - Builds sdist/wheel and uploads to PyPI
 - Builds conda package and uploads to prefix.dev channel `astrogenomics`
 - Commits release changes, tags `v<version>`, and pushes to GitHub
+- Creates a GitHub Release for `v<version>` (if `gh` is installed and authenticated)
+- Uploads `symclatron_db.tar.gz` to the GitHub Release (with `--data-bundle`)
+
+## QA smoke test
+
+Run in a fresh environment after install + setup:
+
+```bash
+symclatron --version
+symclatron setup
+symclatron test --mode both
+```
+
+## Data bundle updates
+
+`symclatron setup` downloads the database bundle from GitHub Releases (versioned), with fallbacks:
+
+- Preferred: `https://github.com/NeLLi-team/symclatron/releases/download/v<version>/symclatron_db.tar.gz`
+- Fallback: `https://github.com/NeLLi-team/symclatron/releases/latest/download/symclatron_db.tar.gz`
+- Fallback: `https://portal.nersc.gov/cfs/nelli/symclatron_db.tar.gz`
+
+Rebuild the bundle from the local `data/` directory:
+
+```bash
+./scripts/build_data_bundle.sh
+realpath dist/symclatron_db.tar.gz
+```
+
+Publish the new bundle to the GitHub Release (recommended):
+
+```bash
+./scripts/publish_data_bundle.sh "$VERSION"
+```
+
+Verify:
+
+```bash
+curl -I -L "https://github.com/NeLLi-team/symclatron/releases/download/v${VERSION}/symclatron_db.tar.gz" | head
+
+symclatron setup --force
+symclatron test --mode both
+```
 
 ## If you already ran deploy without pushing
 
@@ -48,6 +91,9 @@ git commit -m "Release $VERSION"
 git push origin main
 git tag "v$VERSION"
 git push origin "v$VERSION"
+
+# Optional: create the GitHub Release (tags alone do not show up under "Releases")
+gh release create "v$VERSION" --title "v$VERSION" --generate-notes
 ```
 
 ## Notes
@@ -64,7 +110,7 @@ The image installs symclatron from the `astrogenomics` prefix.dev channel, runs 
 ### Build and push (multi-arch)
 
 ```bash
-VERSION="0.7.2"
+VERSION="<version>"
 scripts/docker_publish.sh "$VERSION"
 ```
 

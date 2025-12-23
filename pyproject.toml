@@ -28,6 +28,7 @@ dependencies = [
     "tensorflow-cpu>=2.18.0",
     "joblib>=1.4.2",
     "pyhmmer>=0.11.1",
+    "pyrodigal>=3.6.0",
     "psutil>=5.9.0"
 ]
 dynamic = ["version", "description"]

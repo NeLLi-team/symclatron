@@ -2,7 +2,7 @@
 
 **ML-based classification of microbial symbiotic lifestyles**
 
-symclatron is a tool that classifies microbial genomes (input is protein FASTA files (`.faa`)) into three symbiotic lifestyle categories:
+symclatron is a tool that classifies microbial genomes (protein FASTA, or nucleotide FASTA with automatic protein prediction) into three symbiotic lifestyle categories:
 
 - **Free-living**
 - **Symbiont; Host-associated**
@@ -27,7 +27,7 @@ Install, setup, and test:
 ```sh
 pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 symclatron setup
-symclatron test
+symclatron test  # also tests contig (.fna) inputs when available
 ```
 
 ### Option 2: Mamba or Conda
@@ -35,7 +35,7 @@ symclatron test
 ```sh
 mamba create -n symclatron-0.8.0 -c conda-forge -c bioconda -c https://prefix.dev/astrogenomics symclatron
 mamba run -n symclatron-0.8.0 symclatron setup
-mamba run -n symclatron-0.8.0 symclatron test
+mamba run -n symclatron-0.8.0 symclatron test  # also tests contig (.fna) inputs when available
 ```
 
 ## Setup data (required)
@@ -46,15 +46,44 @@ Before using `symclatron` for the first time, you need to download the required 
 symclatron setup
 ```
 
+By default, `symclatron setup` downloads the database bundle from:
+
+- `https://github.com/NeLLi-team/symclatron/releases/download/v<version>/symclatron_db.tar.gz` (preferred)
+- `https://github.com/NeLLi-team/symclatron/releases/latest/download/symclatron_db.tar.gz` (fallback)
+- `https://portal.nersc.gov/cfs/nelli/symclatron_db.tar.gz` (fallback)
+
+Override the URL if needed:
+
+```bash
+symclatron setup --data-url https://example.org/symclatron_db.tar.gz
+# or
+export SYMCLATRON_DATA_URL=https://example.org/symclatron_db.tar.gz
+symclatron setup
+```
+
 ## Input file requirements
 
-- **Input file format**: Protein FASTA files (`.faa`)
+- **Input**: a directory with one genome per file
+- **Supported FASTA types**:
+  - **Proteins (recommended)**: `.faa` (also accepts common protein FASTA suffixes, optionally gzipped)
+  - **Nucleotide contigs/assemblies**: `.fa`, `.fna`, `.fasta` (proteins predicted with `pyrodigal`)
+  - **Nucleotide genes/CDS**: `.ffn`, `.fnn` (translated in-frame)
 - **Quality**: Complete or near-complete genomes recommended, but good performance for MQ MAGs are expected
+
+symclatron auto-detects whether each input file contains proteins, genes, or contigs and converts nucleotide inputs to proteins before running the standard workflow.
+If your nucleotide file extensions are ambiguous, you can override detection with `--input-kind contigs` or `--input-kind genes`.
 
 ### Classify your genomes
 
 ```bash
+# Protein FASTA input
 symclatron classify --genome-dir /path/to/genomes/ --output-dir results/
+
+# Nucleotide contigs/assemblies input (auto protein prediction)
+symclatron classify --genome-dir /path/to/contigs/ --output-dir results/
+
+# Ambiguous nucleotide files: force contig mode and only use .fna files
+symclatron classify --genome-dir /path/to/inputs/ --input-kind contigs --input-ext .fna --output-dir results/
 ```
 
 ### Getting help
@@ -80,7 +109,9 @@ symclatron classify [OPTIONS]
 
 **Options:**
 
-- `--genome-dir, -i`: Directory containing genome FASTA files (.faa) [default: input_genomes]
+- `--genome-dir, -i`: Directory (or FASTA file) containing genome inputs (.faa/.fa/.fna/.fasta/.ffn/.fnn) [default: input_genomes]
+- `--input-kind`: Force input kind: `auto`, `proteins`, `genes`, `contigs` [default: auto]
+- `--input-ext`: Only include files with these extensions (repeatable), e.g. `--input-ext .fna` (also matches `.fna.gz`)
 - `--output-dir, -o`: Output directory for results [default: output_symclatron]
 - `--keep-tmp`: Keep temporary files for debugging
 - `--threads, -t`: Number of threads for HMMER searches [default: 2]
@@ -141,7 +172,7 @@ symclatron is designed for efficiency:
 Pull the latest container:
 
 ```bash
-apptainer pull docker://docker.io/jvillada/symclatron:latest
+apptainer pull docker://docker.io/astrogenomics/symclatron:latest
 ```
 
 ## Citation
