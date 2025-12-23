@@ -10,9 +10,9 @@ symclatron is a tool that classifies microbial genomes (protein FASTA, or nucleo
 
 ## Installation and quick start
 
-Recommended install paths are Pixi (recommended) or Mamba/Conda.
+Recommended install paths are `Pixi` (recommended) or `Mamba`/`Conda`.
 
-### Option 1: Pixi (recommended)
+### Option 1: `Pixi` (recommended)
 
 Install `pixi`:
 
@@ -28,6 +28,7 @@ Install, setup, and test:
 pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 symclatron setup
 symclatron test
+# Outputs are written under `test_output_symclatron/proteins` and `test_output_symclatron/contigs` (or under `--output-dir` if provided).
 ```
 
 ### Option 2: Mamba or Conda
@@ -36,6 +37,7 @@ symclatron test
 mamba create -n symclatron-0.9.2 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 mamba run -n symclatron-0.9.2 symclatron setup
 mamba run -n symclatron-0.9.2 symclatron test
+# Outputs are written under `test_output_symclatron/proteins` and `test_output_symclatron/contigs` (or under `--output-dir` if provided).
 ```
 
 ## Setup data (required)
@@ -46,34 +48,6 @@ Before using `symclatron` for the first time, you need to download the required 
 symclatron setup
 ```
 
-By default, `symclatron setup` downloads the database bundle from:
-
-- `https://github.com/NeLLi-team/symclatron/releases/download/db-latest/symclatron_db.tar.gz` (preferred)
-
-The bundle is large (~170 MB compressed; ~1.1 GB unpacked).
-The database bundle is shared across symclatron releases and only updated when the database changes.
-
-Override the URL if needed:
-
-```bash
-symclatron setup --data-url https://example.org/symclatron_db.tar.gz
-# or
-export SYMCLATRON_DATA_URL=https://example.org/symclatron_db.tar.gz
-symclatron setup
-```
-
-## QA / QC smoke test
-
-After install + setup, a quick validation run:
-
-```bash
-symclatron --version
-symclatron setup
-symclatron test
-```
-
-Outputs are written under `test_output_symclatron/proteins` and `test_output_symclatron/contigs` (or under `--output-dir` if provided).
-
 ## Input file requirements
 
 - **Input**: a directory with one genome per file
@@ -83,7 +57,7 @@ Outputs are written under `test_output_symclatron/proteins` and `test_output_sym
   - **Nucleotide genes/CDS**: `.ffn`, `.fnn` (translated in-frame)
 - **Quality**: Complete or near-complete genomes recommended, but good performance for MQ MAGs are expected
 
-symclatron auto-detects whether each input file contains proteins, genes, or contigs and converts nucleotide inputs to proteins before running the standard workflow.
+`symclatron` auto-detects whether each input file contains proteins, genes, or contigs and converts nucleotide inputs to proteins before running the standard workflow.
 If your nucleotide file extensions are ambiguous, you can override detection with `--input-kind contigs` or `--input-kind genes`.
 
 ### Classify your genomes
