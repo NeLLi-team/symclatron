@@ -51,7 +51,7 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.9.2"
+__version__ = "0.9.3"
 
 def _abs_path(path: Union[str, Path]) -> str:
     """Return an absolute path without requiring it to exist."""
