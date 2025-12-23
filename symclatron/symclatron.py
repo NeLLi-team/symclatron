@@ -51,7 +51,7 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 def _abs_path(path: Union[str, Path]) -> str:
     """Return an absolute path without requiring it to exist."""
@@ -2473,8 +2473,8 @@ def classify_genomes(
     if not quiet:
         print_header()
         init_message_classify()
-        typer.secho(f"Input path: {genome_dir}", fg=typer.colors.BLUE)
-        typer.secho(f"Output directory: {output_dir}", fg=typer.colors.BLUE)
+        typer.secho(f"Input path: {_abs_path(genome_dir)}", fg=typer.colors.BLUE)
+        typer.secho(f"Output directory: {_abs_path(output_dir)}", fg=typer.colors.BLUE)
         typer.secho(f"Threads: {threads}", fg=typer.colors.BLUE)
         typer.secho(f"Input kind: {normalized_kind}", fg=typer.colors.BLUE)
         typer.secho(f"Found {len(input_files)} genome files", fg=typer.colors.BLUE)

@@ -33,9 +33,9 @@ symclatron test  # also tests contig (.fna) inputs when available
 ### Option 2: Mamba or Conda
 
 ```sh
-mamba create -n symclatron-0.9.0 -c conda-forge -c bioconda -c https://prefix.dev/astrogenomics symclatron
-mamba run -n symclatron-0.9.0 symclatron setup
-mamba run -n symclatron-0.9.0 symclatron test  # also tests contig (.fna) inputs when available
+mamba create -n symclatron-0.9.1 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
+mamba run -n symclatron-0.9.1 symclatron setup
+mamba run -n symclatron-0.9.1 symclatron test  # also tests contig (.fna) inputs when available
 ```
 
 ## Setup data (required)
@@ -59,6 +59,16 @@ symclatron setup --data-url https://example.org/symclatron_db.tar.gz
 # or
 export SYMCLATRON_DATA_URL=https://example.org/symclatron_db.tar.gz
 symclatron setup
+```
+
+## QA / QC smoke test
+
+After install + setup, a quick validation run:
+
+```bash
+symclatron --version
+symclatron setup
+symclatron test --mode both
 ```
 
 ## Input file requirements
