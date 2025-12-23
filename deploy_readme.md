@@ -6,7 +6,7 @@ This doc summarizes the release flow for PyPI + prefix.dev (pixi) and the GitHub
 
 - `flit` and `twine` available in the Python environment used by `pixi run`
 - `rattler-build` available on PATH
-- Optional: `gh` (GitHub CLI) to create GitHub Releases automatically
+- `gh` (GitHub CLI) to create GitHub Releases and upload the data bundle (required for `--data-bundle`)
 - Environment variables:
   - `PYPI_API_TOKEN`
   - `PREFIX_API_KEY`
@@ -29,7 +29,7 @@ git stash -u
 ## Standard release (recommended)
 
 ```bash
-VERSION=0.9.0
+VERSION="<version>"
 pixi run ./scripts/deploy.sh "$VERSION" --push --tag --data-bundle
 ```
 
@@ -40,7 +40,7 @@ What it does:
 - Builds conda package and uploads to prefix.dev channel `astrogenomics`
 - Commits release changes, tags `v<version>`, and pushes to GitHub
 - Creates a GitHub Release for `v<version>` (if `gh` is installed and authenticated)
-- Uploads `symclatron_db.tar.gz` to the GitHub Release (with `--data-bundle`)
+- Ensures `symclatron_db.tar.gz` is available under the stable tag `db-latest` (with `--data-bundle`; skips if unchanged)
 
 ## QA smoke test
 
@@ -54,11 +54,9 @@ symclatron test --mode both
 
 ## Data bundle updates
 
-`symclatron setup` downloads the database bundle from GitHub Releases (versioned), with fallbacks:
+`symclatron setup` downloads the database bundle from a stable GitHub Release tag:
 
-- Preferred: `https://github.com/NeLLi-team/symclatron/releases/download/v<version>/symclatron_db.tar.gz`
-- Fallback: `https://github.com/NeLLi-team/symclatron/releases/latest/download/symclatron_db.tar.gz`
-- Fallback: `https://portal.nersc.gov/cfs/nelli/symclatron_db.tar.gz`
+- Preferred: `https://github.com/NeLLi-team/symclatron/releases/download/db-latest/symclatron_db.tar.gz`
 
 Rebuild the bundle from the local `data/` directory:
 
@@ -70,13 +68,13 @@ realpath dist/symclatron_db.tar.gz
 Publish the new bundle to the GitHub Release (recommended):
 
 ```bash
-./scripts/publish_data_bundle.sh "$VERSION"
+./scripts/publish_data_bundle.sh  # defaults to tag db-latest; skips upload if unchanged
 ```
 
 Verify:
 
 ```bash
-curl -I -L "https://github.com/NeLLi-team/symclatron/releases/download/v${VERSION}/symclatron_db.tar.gz" | head
+curl -I -L "https://github.com/NeLLi-team/symclatron/releases/download/db-latest/symclatron_db.tar.gz" | head
 
 symclatron setup --force
 symclatron test --mode both

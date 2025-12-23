@@ -706,9 +706,7 @@ def extract_data(force: bool = False, data_url: Optional[str] = None) -> None:
     typer.secho("Setting up symclatron data", fg=typer.colors.BRIGHT_GREEN)
 
     default_urls = [
-        f"https://github.com/NeLLi-team/symclatron/releases/download/v{__version__}/symclatron_db.tar.gz",
-        "https://github.com/NeLLi-team/symclatron/releases/latest/download/symclatron_db.tar.gz",
-        "https://portal.nersc.gov/cfs/nelli/symclatron_db.tar.gz",
+        "https://github.com/NeLLi-team/symclatron/releases/download/db-latest/symclatron_db.tar.gz",
     ]
     candidate_urls = [data_url] if data_url else default_urls
     data_dir = _abs_path(os.path.join(script_dir, "data"))
@@ -2355,7 +2353,7 @@ def setup_data(
         None,
         "--data-url",
         envvar="SYMCLATRON_DATA_URL",
-        help="Override data bundle URL (default: GitHub Releases, with NERSC fallback)",
+        help="Override data bundle URL (default: GitHub Release tag db-latest)",
     )
 ):
     """
@@ -2537,9 +2535,12 @@ def run_test(
 
     if normalized_mode in {"proteins", "both"}:
         protein_input_dir: Optional[str] = None
+        protein_files: List[Path] = []
         for candidate_dir in [test_proteins_dir, test_genomes_root]:
-            if _list_input_fasta_files(candidate_dir, [".faa"]):
+            candidate_files = _list_input_fasta_files(candidate_dir, [".faa"])
+            if candidate_files:
                 protein_input_dir = candidate_dir
+                protein_files = candidate_files
                 break
         if protein_input_dir is None:
             typer.secho(
@@ -2548,7 +2549,11 @@ def run_test(
             )
             raise typer.Exit(1)
         protein_out = output_dir if normalized_mode == "proteins" else str(Path(output_dir) / "proteins")
-        typer.secho("Running test (protein FASTA)...", fg=typer.colors.BLUE, bold=True)
+        typer.secho(
+            f"Running test 1/2 (protein FASTA; {len(protein_files)} files): {_abs_path(protein_input_dir)}",
+            fg=typer.colors.BLUE,
+            bold=True,
+        )
         classify_genomes(
             genome_dir=protein_input_dir,
             input_kind="proteins",
@@ -2568,8 +2573,13 @@ def run_test(
                 raise typer.Exit(1)
             typer.secho(f"Warning: {message}", fg=typer.colors.YELLOW)
             return
+        contig_files = _list_input_fasta_files(test_contigs_dir, [".fna"])
         contig_out = output_dir if normalized_mode == "contigs" else str(Path(output_dir) / "contigs")
-        typer.secho("Running test (contig FASTA -> protein prediction)...", fg=typer.colors.BLUE, bold=True)
+        typer.secho(
+            f"Running test 2/2 (contig FASTA -> protein prediction; {len(contig_files)} files): {test_contigs_dir}",
+            fg=typer.colors.BLUE,
+            bold=True,
+        )
         classify_genomes(
             genome_dir=test_contigs_dir,
             input_kind="contigs",

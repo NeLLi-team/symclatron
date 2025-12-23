@@ -308,26 +308,14 @@ if [[ "$DO_GIT_PUSH" -eq 1 ]]; then
           fi
 
           if [[ "$DO_DATA_BUNDLE" -eq 1 ]]; then
-            step "Build and upload data bundle to GitHub Release"
+            step "Publish data bundle (db-latest)"
             if [[ ! -d "$ROOT_DIR/data" ]]; then
               echo "Error: data directory not found at: $ROOT_DIR/data"
               echo "Tip: run 'symclatron setup' first (or populate data/ before deploying)."
               exit 1
             fi
-            log "Building data bundle from: ${ROOT_DIR}/data"
-            "$ROOT_DIR/scripts/build_data_bundle.sh"
-            DATA_TARBALL="$ROOT_DIR/dist/symclatron_db.tar.gz"
-            if [[ ! -f "$DATA_TARBALL" ]]; then
-              echo "Error: expected data bundle not found: $DATA_TARBALL"
-              exit 1
-            fi
-            log "Uploading data bundle: ${DATA_TARBALL}"
-            if ! gh release upload "$TAG" "$DATA_TARBALL" --clobber; then
-              echo "Error: failed to upload data bundle to GitHub Release ${TAG}"
-              exit 1
-            fi
-            log "Data bundle URL: https://github.com/NeLLi-team/symclatron/releases/download/${TAG}/$(basename "$DATA_TARBALL")"
-            echo "[OK] Uploaded data bundle to GitHub Release: ${TAG}"
+            log "Publishing data bundle to tag: db-latest (skips rebuild/upload if unchanged)"
+            "$ROOT_DIR/scripts/publish_data_bundle.sh" "db-latest"
           fi
         else
           if [[ "$DO_DATA_BUNDLE" -eq 1 ]]; then

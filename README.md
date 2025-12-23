@@ -27,7 +27,7 @@ Install, setup, and test:
 ```sh
 pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 symclatron setup
-symclatron test  # also tests contig (.fna) inputs when available
+symclatron test  # runs FAA test first, then FNA test (when available)
 ```
 
 ### Option 2: Mamba or Conda
@@ -35,7 +35,7 @@ symclatron test  # also tests contig (.fna) inputs when available
 ```sh
 mamba create -n symclatron-0.9.1 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 mamba run -n symclatron-0.9.1 symclatron setup
-mamba run -n symclatron-0.9.1 symclatron test  # also tests contig (.fna) inputs when available
+mamba run -n symclatron-0.9.1 symclatron test  # runs FAA test first, then FNA test (when available)
 ```
 
 ## Setup data (required)
@@ -48,9 +48,10 @@ symclatron setup
 
 By default, `symclatron setup` downloads the database bundle from:
 
-- `https://github.com/NeLLi-team/symclatron/releases/download/v<version>/symclatron_db.tar.gz` (preferred)
-- `https://github.com/NeLLi-team/symclatron/releases/latest/download/symclatron_db.tar.gz` (fallback)
-- `https://portal.nersc.gov/cfs/nelli/symclatron_db.tar.gz` (fallback)
+- `https://github.com/NeLLi-team/symclatron/releases/download/db-latest/symclatron_db.tar.gz` (preferred)
+
+The bundle is large (~170 MB compressed; ~1.1 GB unpacked).
+The database bundle is shared across symclatron releases and only updated when the database changes.
 
 Override the URL if needed:
 
@@ -68,8 +69,10 @@ After install + setup, a quick validation run:
 ```bash
 symclatron --version
 symclatron setup
-symclatron test --mode both
+symclatron test --mode both  # runs FAA test first, then FNA test
 ```
+
+Outputs are written under `test_output_symclatron/proteins` and `test_output_symclatron/contigs` (or under `--output-dir` if provided).
 
 ## Input file requirements
 
