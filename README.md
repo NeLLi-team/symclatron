@@ -26,7 +26,7 @@ Install, setup, and test:
 
 ```sh
 pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
-symclatron setup
+symclatron setup --force
 symclatron test
 # Outputs are written under `test_output_symclatron/proteins` and `test_output_symclatron/contigs` (or under `--output-dir` if provided).
 ```
