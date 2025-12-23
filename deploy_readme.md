@@ -30,6 +30,7 @@ git stash -u
 
 ```bash
 VERSION="<version>"
+VERSION="0.9.2"
 pixi run ./scripts/deploy.sh "$VERSION" --push --tag --data-bundle
 ```
 
