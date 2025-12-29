@@ -3,6 +3,7 @@
 # Standard library imports
 import glob
 import gzip
+import hashlib
 import itertools
 import json
 import logging
@@ -110,6 +111,20 @@ def _safe_extract_tar(archive_path: str, dest_dir: str) -> None:
             if not (member_path == dest_root or member_path.startswith(dest_root + os.sep)):
                 raise RuntimeError(f"Unsafe path detected in tar archive: {member.name}")
         tar.extractall(dest_root)  # noqa: S202 - path traversal protected above
+
+
+def _verify_sha256(path: str, expected: str) -> None:
+    expected_clean = expected.lower().strip()
+    if expected_clean.startswith("sha256:"):
+        expected_clean = expected_clean.split("sha256:", 1)[1].strip()
+
+    hasher = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    digest = hasher.hexdigest()
+    if digest != expected_clean:
+        raise RuntimeError(f"SHA256 mismatch: expected {expected_clean}, got {digest}")
 
 
 def _parse_fasta(path: Path):
@@ -603,9 +618,10 @@ class ResourceMonitor:
         self._stop_background_monitoring()
 
         # Calculate final statistics
-        session_duration_mins = (time.time() - self.session_start_time) / 60
+        session_duration_secs = max(time.time() - self.session_start_time, 1e-6)
+        session_duration_mins = session_duration_secs / 60
         peak_memory_gb = self.peak_memory_mb / 1024
-        efficiency = (self.total_python_time + self.total_subprocess_time) / (session_duration_mins * 60) * 100
+        efficiency = (self.total_python_time + self.total_subprocess_time) / session_duration_secs * 100
 
         # Generate detailed report
         report_data = {
@@ -701,7 +717,11 @@ def init_message_classify() -> None:
     return typer.echo(message)
 
 
-def extract_data(force: bool = False, data_url: Optional[str] = None) -> None:
+def extract_data(
+    force: bool = False,
+    data_url: Optional[str] = None,
+    data_sha256: Optional[str] = None,
+) -> None:
     """Download and extract the symclatron data archive."""
     typer.secho("Setting up symclatron data", fg=typer.colors.BRIGHT_GREEN)
 
@@ -740,6 +760,8 @@ def extract_data(force: bool = False, data_url: Optional[str] = None) -> None:
             try:
                 typer.secho(f"Downloading data from {url}...", fg=typer.colors.BRIGHT_GREEN)
                 urllib.request.urlretrieve(url, tmp_download_path)
+                if data_sha256:
+                    _verify_sha256(tmp_download_path, data_sha256)
                 used_url = url
                 break
             except Exception as exc:  # noqa: BLE001 - show and try next URL
@@ -916,8 +938,8 @@ def rename_genomes(tmp_genome_dir_path: str) -> str:
     Returns:
         str: Path to the JSON file containing the mapping of new to original genome names.
     """
-    genome_file_paths = glob.glob(tmp_genome_dir_path + "/*.faa")
-    genome_names = [x.split("/")[-1].split(".faa")[0] for x in genome_file_paths]
+    genome_file_paths = sorted(glob.glob(tmp_genome_dir_path + "/*.faa"))
+    genome_names = [Path(x).stem for x in genome_file_paths]
     # the dictionary will have as keys the new simplified name of the genome and as values the original name
     # the simplied name will be genome_1, genome_2, etc
     genome_dict = {f"genome_{i+1}": genome_names[i] for i in range(len(genome_names))}
@@ -927,9 +949,10 @@ def rename_genomes(tmp_genome_dir_path: str) -> str:
         json.dump(genome_dict, outfile)
 
     # rename the faa fasta files with the new simplified names using the genome_dict
+    name_to_new = {original: new for new, original in genome_dict.items()}
     for each_genome in genome_file_paths:
-        genome_name = each_genome.split("/")[-1].split(".faa")[0]
-        new_name = f"{tmp_genome_dir_path}/{list(genome_dict.keys())[list(genome_dict.values()).index(genome_name)]}.faa"
+        genome_name = Path(each_genome).stem
+        new_name = Path(tmp_genome_dir_path) / f"{name_to_new[genome_name]}.faa"
         os.rename(each_genome, new_name)
 
     typer.secho("[OK] Genomes renamed\n", fg=typer.colors.BRIGHT_MAGENTA)
@@ -944,29 +967,26 @@ def rename_all_proteins_in_fasta_files(tmp_genome_dir_path: str, savedir: str) -
         tmp_genome_dir_path (str): Path to the temporary directory containing the genomes.
         savedir (str): Path to the output directory.
     """
-    genome_file_paths = glob.glob(tmp_genome_dir_path + "/*.faa")
+    genome_file_paths = sorted(glob.glob(tmp_genome_dir_path + "/*.faa"))
     for each_genome in genome_file_paths:
-        # create a json dictionary with the original protein names and the new simplified names
-        # the simplified names will be protein_1, protein_2, etc
-        with open(each_genome, "r") as infile:
-            proteins = [line for line in infile if line.startswith(">")]
-            proteins = [x.split()[0].replace(">", "") for x in proteins]
-            proteins_dict = {
-                f"protein_{i+1}": proteins[i] for i in range(len(proteins))
-            }
-        with open(f"{each_genome.split('.faa')[0]}_dict.json", "w") as outfile:
-            json.dump(proteins_dict, outfile)
+        proteins_dict: Dict[str, str] = {}
+        genome_name = Path(each_genome).stem
+        renamed_path = each_genome.replace(".faa", "_renamed.faa")
+        protein_index = 0
 
-        # rename the proteins in the fasta file
-        with open(each_genome, "r") as infile:
-            genome_name = each_genome.split("/")[-1].replace(".faa", "")
-            with open(f"{each_genome.replace(".faa", "_renamed.faa")}", "w") as outfile:
-                for line in infile:
-                    if line.startswith(">"):
-                        new_name = f">{genome_name}|protein_{proteins.index(line.split()[0].replace(">", ""))+1}\n"
-                        outfile.write(new_name)
-                    else:
-                        outfile.write(line)
+        # Rename proteins and capture original headers in a single pass.
+        with open(each_genome, "r", encoding="utf-8") as infile, open(renamed_path, "w", encoding="utf-8") as outfile:
+            for line in infile:
+                if line.startswith(">"):
+                    protein_index += 1
+                    original_name = line.split()[0].lstrip(">")
+                    proteins_dict[f"protein_{protein_index}"] = original_name
+                    outfile.write(f">{genome_name}|protein_{protein_index}\n")
+                else:
+                    outfile.write(line)
+
+        with open(f"{each_genome.split('.faa')[0]}_dict.json", "w", encoding="utf-8") as outfile:
+            json.dump(proteins_dict, outfile)
         # delete the original fasta file
         os.remove(each_genome)
 
@@ -2057,7 +2077,7 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
             class_counts = results_df['classification'].value_counts()
 
             # Calculate completeness statistics
-            completeness_stats = {}
+            completeness_stats = None
             if 'completeness_UNI56' in results_df.columns:
                 completeness_stats = {
                     'mean': round(results_df['completeness_UNI56'].mean(), 2),
@@ -2067,7 +2087,7 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
                 }
 
             # Calculate confidence statistics
-            confidence_stats = {}
+            confidence_stats = None
             if 'confidence' in results_df.columns:
                 confidence_stats = {
                     'mean': results_df['confidence'].mean(),
@@ -2085,16 +2105,28 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
                 logger.info(f"  - {category}: {count} ({percentage:.1f}%)")
 
             logger.info("\nCompleteness statistics (UNI56 markers):")
-            logger.info(f"  - Mean: {completeness_stats.get('mean', 'N/A'):.2f}%")
-            logger.info(f"  - Median: {completeness_stats.get('median', 'N/A'):.2f}%")
-            logger.info(f"  - Min: {completeness_stats.get('min', 'N/A'):.2f}%")
-            logger.info(f"  - Max: {completeness_stats.get('max', 'N/A'):.2f}%")
+            if completeness_stats:
+                logger.info(f"  - Mean: {completeness_stats['mean']:.2f}%")
+                logger.info(f"  - Median: {completeness_stats['median']:.2f}%")
+                logger.info(f"  - Min: {completeness_stats['min']:.2f}%")
+                logger.info(f"  - Max: {completeness_stats['max']:.2f}%")
+            else:
+                logger.info("  - Mean: N/A")
+                logger.info("  - Median: N/A")
+                logger.info("  - Min: N/A")
+                logger.info("  - Max: N/A")
 
             logger.info("\nConfidence statistics:")
-            logger.info(f"  - Mean: {confidence_stats.get('mean', 'N/A'):.2f}")
-            logger.info(f"  - Median: {confidence_stats.get('median', 'N/A'):.2f}")
-            logger.info(f"  - Min: {confidence_stats.get('min', 'N/A'):.2f}")
-            logger.info(f"  - Max: {confidence_stats.get('max', 'N/A'):.2f}")
+            if confidence_stats:
+                logger.info(f"  - Mean: {confidence_stats['mean']:.2f}")
+                logger.info(f"  - Median: {confidence_stats['median']:.2f}")
+                logger.info(f"  - Min: {confidence_stats['min']:.2f}")
+                logger.info(f"  - Max: {confidence_stats['max']:.2f}")
+            else:
+                logger.info("  - Mean: N/A")
+                logger.info("  - Median: N/A")
+                logger.info("  - Min: N/A")
+                logger.info("  - Max: N/A")
 
             # Create a formal summary file
             summary_file = f"{output_dir}/classification_summary.txt"
@@ -2110,16 +2142,28 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
                     f.write(f"{category}: {count} ({percentage:.1f}%)\n")
 
                 f.write("\nCompleteness statistics (UNI56 markers)\n\n")
-                f.write(f"Mean: {completeness_stats.get('mean', 'N/A'):.2f}%\n")
-                f.write(f"Median: {completeness_stats.get('median', 'N/A'):.2f}%\n")
-                f.write(f"Min: {completeness_stats.get('min', 'N/A'):.2f}%\n")
-                f.write(f"Max: {completeness_stats.get('max', 'N/A'):.2f}%\n")
+                if completeness_stats:
+                    f.write(f"Mean: {completeness_stats['mean']:.2f}%\n")
+                    f.write(f"Median: {completeness_stats['median']:.2f}%\n")
+                    f.write(f"Min: {completeness_stats['min']:.2f}%\n")
+                    f.write(f"Max: {completeness_stats['max']:.2f}%\n")
+                else:
+                    f.write("Mean: N/A\n")
+                    f.write("Median: N/A\n")
+                    f.write("Min: N/A\n")
+                    f.write("Max: N/A\n")
 
                 f.write("\nConfidence statistics\n\n")
-                f.write(f"Mean: {confidence_stats.get('mean', 'N/A'):.2f}\n")
-                f.write(f"Median: {confidence_stats.get('median', 'N/A'):.2f}\n")
-                f.write(f"Min: {confidence_stats.get('min', 'N/A'):.2f}\n")
-                f.write(f"Max: {confidence_stats.get('max', 'N/A'):.2f}\n")
+                if confidence_stats:
+                    f.write(f"Mean: {confidence_stats['mean']:.2f}\n")
+                    f.write(f"Median: {confidence_stats['median']:.2f}\n")
+                    f.write(f"Min: {confidence_stats['min']:.2f}\n")
+                    f.write(f"Max: {confidence_stats['max']:.2f}\n")
+                else:
+                    f.write("Mean: N/A\n")
+                    f.write("Median: N/A\n")
+                    f.write("Min: N/A\n")
+                    f.write("Max: N/A\n")
 
             logger.info(f"\nSummary saved to: {summary_file}")
 
@@ -2354,6 +2398,12 @@ def setup_data(
         "--data-url",
         envvar="SYMCLATRON_DATA_URL",
         help="Override data bundle URL (default: GitHub Release tag db-latest)",
+    ),
+    data_sha256: Optional[str] = typer.Option(
+        None,
+        "--data-sha256",
+        envvar="SYMCLATRON_DATA_SHA256",
+        help="Expected SHA256 for the data bundle (optional integrity check).",
     )
 ):
     """
@@ -2376,7 +2426,7 @@ def setup_data(
             )
         return
 
-    extract_data(force=force, data_url=data_url)
+    extract_data(force=force, data_url=data_url, data_sha256=data_sha256)
 
     if not quiet:
         typer.secho("Setup completed successfully.", fg=typer.colors.GREEN, bold=True)

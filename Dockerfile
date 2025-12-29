@@ -1,6 +1,6 @@
 FROM mambaorg/micromamba:1.5.10
 
-ARG SYMCLATRON_VERSION=0.7.2
+ARG SYMCLATRON_VERSION=0.9.3
 ARG MAMBA_DOCKERFILE_ACTIVATE=1
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
