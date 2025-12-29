@@ -1,6 +1,6 @@
 # symclatron: symbiont classifier
 
-![Figure 1](https://www.biorxiv.org/content/biorxiv/early/2025/05/29/2025.05.29.656868/F1.large.jpg?width=800&height=600&carousel=1)
+![Figure 1](assets/fig_1_main.png)
 
 **ML-based classification of microbial symbiotic lifestyles**
 
