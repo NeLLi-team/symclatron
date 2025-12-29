@@ -4,7 +4,7 @@
 
 **ML-based classification of microbial symbiotic lifestyles**
 
-symclatron is a tool that classifies microbial genomes (protein FASTA, or nucleotide FASTA with automatic protein prediction) into three symbiotic lifestyle categories:
+symclatron is a tool that classifies microbial genomes (protein FASTA, or nucleotide FASTA with automatic protein prediction) into three lifestyle categories:
 
 - **Free-living**
 - **Symbiont; Host-associated**
