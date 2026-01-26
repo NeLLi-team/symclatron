@@ -36,9 +36,9 @@ symclatron test
 ### Option 2: Mamba or Conda
 
 ```sh
-mamba create -n symclatron-0.9.3 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
-mamba run -n symclatron-0.9.3 symclatron setup
-mamba run -n symclatron-0.9.3 symclatron test
+mamba create -n symclatron-0.9.4 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
+mamba run -n symclatron-0.9.4 symclatron setup
+mamba run -n symclatron-0.9.4 symclatron test
 # Outputs are written under `test_output_symclatron/proteins` and `test_output_symclatron/contigs` (or under `--output-dir` if provided).
 ```
 
