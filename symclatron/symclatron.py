@@ -1051,17 +1051,17 @@ def run_hmmsearch(ncpus: int, resource_monitor: Optional["ResourceMonitor"] = No
 
             # Load sequences
             with pyhmmer.easel.SequenceFile(sequence_file_path, digital=True) as seq_file:
-                sequences = list(seq_file)
+                sequences = seq_file.read_block()
 
             # Run hmmsearch
             all_hits = []
             for hits in pyhmmer.hmmsearch(hmms, sequences, cpus=ncpus, E=1000, incE=1000):
-                query_name = hits.query.name.decode()
+                query_name = hits.query.name
                 for hit in hits:
                     for domain in hit.domains:
                         # Format similar to HMMER tblout format
                         all_hits.append({
-                            'target_name': hit.name.decode(),
+                            'target_name': hit.name,
                             'accession': '-',
                             'query_name': query_name,
                             'accession_q': '-',
@@ -1134,17 +1134,17 @@ def run_hmmsearch_uni56(ncpus: int, resource_monitor: Optional["ResourceMonitor"
 
             # Load sequences
             with pyhmmer.easel.SequenceFile(sequence_file_path, digital=True) as seq_file:
-                sequences = list(seq_file)
+                sequences = seq_file.read_block()
 
             # Run hmmsearch with gathering thresholds (cut_ga equivalent)
             all_hits = []
             for hits in pyhmmer.hmmsearch(hmms, sequences, cpus=ncpus, bit_cutoffs="gathering"):
-                query_name = hits.query.name.decode()
+                query_name = hits.query.name
                 for hit in hits:
                     for domain in hit.domains:
                         # Format similar to HMMER tblout format
                         all_hits.append({
-                            'target_name': hit.name.decode(),
+                            'target_name': hit.name,
                             'accession': '-',
                             'query_name': query_name,
                             'accession_q': '-',
@@ -1214,7 +1214,7 @@ def save_list_of_models() -> None:
                 with pyhmmer.plan7.HMMFile(hmmfile) as hmm_file:
                     for hmm in hmm_file:
                         # Write the model name (equivalent to "NAME" field)
-                        output_models_list_file.write(hmm.name.decode() + "\n")
+                        output_models_list_file.write(hmm.name + "\n")
         except Exception as e:
             typer.secho(f"Error reading HMM file {hmmfile}: {str(e)}", fg=typer.colors.RED, err=True)
             # Fallback to the original text parsing method
