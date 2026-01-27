@@ -1867,43 +1867,41 @@ def predict_new_data(new_data: pd.DataFrame, model: Any = None, scaler: Any = No
     return result_df
 
 
-def setup_logging(log_file: Optional[str] = None, verbose: bool = False) -> logging.Logger:
+def setup_logging(log_dir: Optional[str] = None, verbose: bool = False) -> logging.Logger:
     """
     Configure logging for the application.
 
     Parameters:
-    log_file (str, optional): Path to the log file. If not provided, logs will only go to console.
+    log_dir (str, optional): Directory to write log files. Defaults to ./logs if not provided.
 
     Returns:
     logging.Logger: Configured logger object
     """
-    logger = logging.getLogger('symclatron')
+    log_dir = Path(log_dir or os.path.join(os.getcwd(), "logs")).expanduser().absolute()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "symclatron.log"
+
+    numeric_level = logging.DEBUG if verbose else logging.INFO
+    formatter = logging.Formatter(
+        fmt="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    logger = logging.getLogger("symclatron")
+    logger.setLevel(numeric_level)
     logger.handlers.clear()
-    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
 
-    # Create formatters
-    file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_formatter = logging.Formatter('%(message)s')
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    stream_handler.setLevel(numeric_level)
 
-    # Create console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
-    console_handler.setFormatter(console_formatter)
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)
 
-    # Add console handler to logger
-    logger.addHandler(console_handler)
-
-    # If log file is provided, create file handler
-    if log_file:
-        log_file = _abs_path(log_file)
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(logging.DEBUG)  # DEBUG level for file (more verbose)
-        file_handler.setFormatter(file_formatter)
-        logger.addHandler(file_handler)
-
-    # Prevent log messages from being propagated to the root logger
-    logger.propagate = False
-
+    logger.addHandler(stream_handler)
+    logger.addHandler(file_handler)
+    logger.debug("Logging initialised at level %s", logging.getLevelName(numeric_level))
     return logger
 
 
@@ -2214,23 +2212,11 @@ def classify(
     if not os.path.exists(savedir):
         os.makedirs(savedir)
 
-    # Set up logging with date and time in the log file name
-    # Check if current directory is writable, if not use output directory for logs
-    script_dir_writable = os.access(os.path.dirname(os.path.abspath(__file__)), os.W_OK)
-    if script_dir_writable:
-        log_file = f"{save_dir}_symclatron_classification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        resource_log_file = f"{save_dir}_symclatron_resources_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-    else:
-        log_file = f"{savedir}/symclatron_classification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        resource_log_file = f"{savedir}/symclatron_resources_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_dir = Path(savedir) / "logs"
+    logger = setup_logging(str(log_dir), verbose=verbose)
 
-    log_file = _abs_path(log_file)
-    resource_log_file = _abs_path(resource_log_file)
-
-    logger = setup_logging(log_file, verbose=verbose)
-
-    # Initialize resource monitoring using log directory
-    resource_monitor = ResourceMonitor(os.path.dirname(resource_log_file))
+    # Initialize resource monitoring using the same log directory
+    resource_monitor = ResourceMonitor(str(log_dir))
 
     # Rest of the function remains unchanged
     logger.info("Starting symclatron classifier")
