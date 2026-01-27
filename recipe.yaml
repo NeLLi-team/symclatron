@@ -1,5 +1,5 @@
 context:
-  version: 0.9.7
+  version: 0.9.8
 
 package:
   name: symclatron
@@ -7,7 +7,7 @@ package:
 
 source:
 - url: https://pypi.org/packages/source/s/symclatron/symclatron-${{ version }}.tar.gz
-  sha256: fa3c1d59acbd0353e4dc471193064556425000428735281b83a9dd5aa0b46f4a
+  sha256: 84b26d075e4637786a83f540c8f07402f5ac77817c165ba3fe3cedc486d1061a
 
 build:
   script:
@@ -26,6 +26,7 @@ requirements:
   run:
   - python >=3.12,<3.13
   - typer >=0.12.3,<0.13
+  - click <8.3
   - pandas >=2.2.2,<2.3
   - numpy >=1.26.4,<2.0
   - xgboost >=2.1.1,<2.2
