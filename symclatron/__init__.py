@@ -17,7 +17,7 @@ Lawrence Berkeley National Laboratory (LBNL)
 """
 
 # Version information - required by flit for dynamic version
-__version__ = "0.9.9"
+__version__ = "0.9.10"
 
 # Author information - required by flit
 __author__ = "Juan C. Villada"

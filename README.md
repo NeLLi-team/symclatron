@@ -37,9 +37,9 @@ symclatron test
 ### Option 2: Mamba or Conda
 
 ```sh
-mamba create -n symclatron-0.9.9 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
-mamba run -n symclatron-0.9.9 symclatron setup
-mamba run -n symclatron-0.9.9 symclatron test
+mamba create -n symclatron-0.9.10 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
+mamba run -n symclatron-0.9.10 symclatron setup
+mamba run -n symclatron-0.9.10 symclatron test
 # Outputs are written under `output_test_Symclatron_<DATETIME>/faa` and `output_test_Symclatron_<DATETIME>/fna`
 # (or under `--output-dir` if provided).
 ```
