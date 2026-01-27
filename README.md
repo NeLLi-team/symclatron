@@ -44,6 +44,8 @@ mamba run -n symclatron-0.9.9 symclatron test
 # (or under `--output-dir` if provided).
 ```
 
+Note: `symcla` is a short alias for `symclatron`. Any command works with either name (for example, `symcla test`).
+
 ## Setup data (required)
 
 Before using `symclatron` for the first time, you need to download the required database files. This only needs to be done once.

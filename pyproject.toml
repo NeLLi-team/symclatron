@@ -4,6 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project.scripts]
 symclatron = "symclatron.symclatron:app"
+symcla = "symclatron.symclatron:app"
 
 [project]
 name = "symclatron"

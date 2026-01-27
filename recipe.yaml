@@ -16,6 +16,7 @@ build:
   python:
     entry_points:
     - symclatron = symclatron.symclatron:app
+    - symcla = symclatron.symclatron:app
   noarch: python
 
 requirements:
