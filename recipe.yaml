@@ -1,5 +1,5 @@
 context:
-  version: 0.9.4
+  version: 0.9.6
 
 package:
   name: symclatron
@@ -7,7 +7,7 @@ package:
 
 source:
 - url: https://pypi.org/packages/source/s/symclatron/symclatron-${{ version }}.tar.gz
-  sha256: 9202f1db28dc5535bafe9ecc8c69ec554c6bfb2ae4fab3527b6b560296dac5b6
+  sha256: d97cd04b22f76ab6d50e5b921937d7adb5f3f412a587fc4e29297d2d7debeb4b
 
 build:
   script:
@@ -35,7 +35,7 @@ requirements:
   - joblib >=1.4.2,<1.5
   - pyhmmer >=0.12.0,<0.13
   - pyrodigal >=3.6.0,<3.7
-  - psutil >=5.9.0,<6.0
+  - psutil >=6.0,<8.0
 
 tests:
 - python:
