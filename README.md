@@ -154,16 +154,6 @@ symclatron is designed for efficiency:
 - **Most recent benchmark**: 306 genomes in ~162 minutes (1.9 min/genome)
 - **Memory efficient** - suitable for standard workstations
 
-## Container usage
-
-### Apptainer/Singularity
-
-Pull the latest container:
-
-```bash
-apptainer pull docker://docker.io/astrogenomics/symclatron:latest
-```
-
 ## Citation
 
 If you use symclatron in your research, please cite:

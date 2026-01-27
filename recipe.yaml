@@ -20,22 +20,22 @@ build:
 
 requirements:
   host:
-  - python >=3.12
+  - python >=3.12,<3.13
   - flit >=3.2,<4
   - pip
   run:
-  - python >=3.12
-  - typer >=0.12.3
-  - pandas >=2.2.2
-  - numpy >=1.26.4
-  - xgboost >=2.1.1
-  - shap >=0.45.1
-  - scikit-learn >=1.5.1
-  - tensorflow-cpu >=2.18.0
-  - joblib >=1.4.2
-  - pyhmmer >=0.11.1
-  - pyrodigal >=3.6.0
-  - psutil >=5.9.0
+  - python >=3.12,<3.13
+  - typer >=0.12.3,<0.13
+  - pandas >=2.2.2,<2.3
+  - numpy >=1.26.4,<2.0
+  - xgboost >=2.1.1,<2.2
+  - shap >=0.45.1,<0.46
+  - scikit-learn >=1.5.1,<1.6
+  - tensorflow-cpu >=2.18.0,<2.19
+  - joblib >=1.4.2,<1.5
+  - pyhmmer >=0.12.0,<0.13
+  - pyrodigal >=3.6.0,<3.7
+  - psutil >=5.9.0,<6.0
 
 tests:
 - python:
@@ -180,16 +180,6 @@ about:
     - **>2 minutes per genome** on consumer-level laptops
     - **Most recent benchmark**: 306 genomes in ~162 minutes (1.9 min/genome)
     - **Memory efficient** - suitable for standard workstations
-
-    ## Container usage
-
-    ### Apptainer/Singularity
-
-    Pull the latest container:
-
-    ```bash
-    apptainer pull docker://docker.io/astrogenomics/symclatron:latest
-    ```
 
     ## Citation
 
