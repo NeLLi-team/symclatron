@@ -32,6 +32,37 @@ import shap
 import typer
 import xgboost as xgb
 
+# Typer Rich help compatibility for Click 8.3+ (make_metavar now requires ctx).
+def _patch_typer_rich_metavar() -> None:
+    try:
+        import inspect
+        import click
+    except Exception:
+        return
+
+    try:
+        sig = inspect.signature(click.core.Parameter.make_metavar)
+    except (ValueError, AttributeError):
+        return
+
+    ctx_param = sig.parameters.get("ctx")
+    if ctx_param is None or ctx_param.default is not inspect._empty:
+        return
+
+    original = click.core.Parameter.make_metavar
+
+    def make_metavar(self, ctx=None):  # type: ignore[override]
+        if ctx is None:
+            ctx = click.get_current_context(silent=True)
+        if ctx is None:
+            ctx = click.Context(click.Command("symclatron"))
+        return original(self, ctx)
+
+    click.core.Parameter.make_metavar = make_metavar
+
+
+_patch_typer_rich_metavar()
+
 # Force TensorFlow to use CPU only
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
