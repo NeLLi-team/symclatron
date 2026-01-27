@@ -26,12 +26,12 @@ requirements:
   run:
   - python >=3.12,<3.13
   - typer >=0.12.3,<0.13
-  - click <8.3
+  - click >=8.1,<8.2
   - pandas >=2.2.2,<2.3
   - numpy >=1.26.4,<2.0
   - xgboost >=2.1.1,<2.2
   - shap >=0.45.1,<0.46
-  - scikit-learn >=1.5.1,<1.6
+  - scikit-learn ==1.6.0
   - tensorflow-cpu >=2.18.0,<2.19
   - joblib >=1.4.2,<1.5
   - pyhmmer >=0.12.0,<0.13
@@ -129,7 +129,7 @@ about:
     - `--genome-dir, -i`: Directory (or FASTA file) containing genome inputs (.faa/.fa/.fna/.fasta/.ffn/.fnn) [default: input_genomes]
     - `--input-kind`: Force input kind: `auto`, `proteins`, `genes`, `contigs` [default: auto]
     - `--input-ext`: Only include files with these extensions (repeatable), e.g. `--input-ext .fna`
-    - `--output-dir, -o`: Output directory for results [default: output_symclatron]
+    - `--output-dir, -o`: Output directory for results [default: output_Symclatron_<DATETIME>]
     - `--keep-tmp`: Keep temporary files for debugging
     - `--threads, -t`: Number of threads for HMMER searches [default: 2]
     - `--quiet, -q`: Suppress progress messages

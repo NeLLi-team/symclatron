@@ -2,6 +2,8 @@ data/
 logs/
 *.log
 test_output*
+output_Symclatron_*
+output_test_Symclatron_*
 .pixi
 .vscode
 # add python files to ignore

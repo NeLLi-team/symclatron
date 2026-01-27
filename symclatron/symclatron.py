@@ -18,7 +18,7 @@ import threading
 import time
 import urllib.request
 from contextlib import contextmanager, nullcontext
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Union, Any, Tuple
 
@@ -57,6 +57,20 @@ __version__ = "0.9.8"
 def _abs_path(path: Union[str, Path]) -> str:
     """Return an absolute path without requiring it to exist."""
     return os.path.abspath(os.path.expanduser(str(path)))
+
+
+def _get_logger() -> logging.Logger:
+    return logging.getLogger("symclatron")
+
+
+def _log_lines(logger: logging.Logger, message: Union[str, List[str]], level: int = logging.INFO) -> None:
+    if isinstance(message, (list, tuple)):
+        lines = message
+    else:
+        lines = str(message).splitlines()
+    for line in lines:
+        if line.strip():
+            logger.log(level, line)
 
 SUPPORTED_NUCLEOTIDE_SUFFIXES = {
     ".fa",
@@ -662,33 +676,41 @@ class ResourceMonitor:
 
     def _print_console_summary(self, data: Dict[str, float]):
         """Print summary to console."""
-        summary = f"""
-Resource monitoring completed.
-Total tasks executed: {data['total_tasks']} (subprocess: {data['subprocess_tasks']}, python: {data['python_tasks']})
-Peak memory usage: {data['peak_memory_gb']:.3f} GB
-Peak CPU usage: {data['peak_cpu_percent']:.1f}%
-Execution time: {data['execution_time_mins']:.1f} minutes
-CPU efficiency: {data['efficiency_percent']:.1f}%
-"""
-        typer.secho(summary, fg=typer.colors.CYAN)
+        logger = _get_logger()
+        lines = [
+            "Resource monitoring completed.",
+            (
+                "Total tasks executed: "
+                f"{data['total_tasks']} (subprocess: {data['subprocess_tasks']}, "
+                f"python: {data['python_tasks']})"
+            ),
+            f"Peak memory usage: {data['peak_memory_gb']:.3f} GB",
+            f"Peak CPU usage: {data['peak_cpu_percent']:.1f}%",
+            f"Execution time: {data['execution_time_mins']:.1f} minutes",
+            f"CPU efficiency: {data['efficiency_percent']:.1f}%",
+        ]
+        _log_lines(logger, lines, logging.INFO)
 
     def __del__(self):
         """Cleanup when object is destroyed."""
         self._stop_background_monitoring()
 
 
-def print_header():
+def print_header(logger: Optional[logging.Logger] = None) -> None:
     """Print symclatron header with version."""
-    header = f"""
-symclatron v{__version__} - symbiont classifier
-
-Machine learning-based classification of microbial symbiotic lifestyles
-
-Author: Juan C. Villada <jvillada@lbl.gov>
-US DOE Joint Genome Institute (JGI)
-Lawrence Berkeley National Laboratory (LBNL)
-"""
-    typer.secho(header, fg=typer.colors.CYAN, bold=True)
+    lines = [
+        f"symclatron v{__version__} - symbiont classifier",
+        "",
+        "Machine learning-based classification of microbial symbiotic lifestyles",
+        "",
+        "Author: Juan C. Villada <jvillada@lbl.gov>",
+        "US DOE Joint Genome Institute (JGI)",
+        "Lawrence Berkeley National Laboratory (LBNL)",
+    ]
+    if logger is None:
+        typer.secho("\n".join(lines), fg=typer.colors.CYAN, bold=True)
+    else:
+        _log_lines(logger, lines, logging.INFO)
 
 
 def greetings():
@@ -698,21 +720,21 @@ def greetings():
 
 def init_message_setup() -> None:
     """Print a setup message to the console."""
-    message = "\nSetup data workflow\n"
+    message = "Setup data workflow"
     message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
     return typer.echo(message)
 
 
 def init_message_build() -> None:
     """Print a build message to the console."""
-    message = "Build classifiers workflow\n"
+    message = "Build classifiers workflow"
     message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
     return typer.echo(message)
 
 
 def init_message_classify() -> None:
     """Print a classification message to the console."""
-    message = "\nClassify genomes workflow\n"
+    message = "Classify genomes workflow"
     message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
     return typer.echo(message)
 
@@ -955,7 +977,8 @@ def rename_genomes(tmp_genome_dir_path: str) -> str:
         new_name = Path(tmp_genome_dir_path) / f"{name_to_new[genome_name]}.faa"
         os.rename(each_genome, new_name)
 
-    typer.secho("[OK] Genomes renamed\n", fg=typer.colors.BRIGHT_MAGENTA)
+    logger = _get_logger()
+    logger.info("Genomes renamed")
 
     return genome_dict_path
 
@@ -993,7 +1016,8 @@ def rename_all_proteins_in_fasta_files(tmp_genome_dir_path: str, savedir: str) -
         # rename the new fasta file with the original name
         os.rename(f"{each_genome.replace('.faa', '_renamed.faa')}", each_genome)
 
-    typer.secho("[OK] Proteins renamed\n", fg=typer.colors.BRIGHT_MAGENTA)
+    logger = _get_logger()
+    logger.info("Proteins renamed")
 
 
 
@@ -1003,7 +1027,8 @@ def merge_genomes(tmp_genomes_path: str) -> None:
     Args:
         tmp_genomes_path (str): Path to the temporary directory containing the genomes.
     """
-    typer.secho("Merging genomes", fg=typer.colors.BRIGHT_GREEN)
+    logger = _get_logger()
+    logger.info("Merging genomes")
     genome_file_paths = glob.glob(f"{tmp_genomes_path}/*.faa")
     output_file = f"{tmp_dir_path}/merged_genomes.faa"
     with open(output_file, "w") as outfile:
@@ -1011,9 +1036,7 @@ def merge_genomes(tmp_genomes_path: str) -> None:
             with open(each_file) as infile:
                 for line in infile:
                     outfile.write(line)
-    typer.secho(
-        f"[OK] Fasta files merged at: {output_file} \n", fg=typer.colors.BRIGHT_MAGENTA
-    )
+    logger.info("Fasta files merged at: %s", output_file)
 
 
 
@@ -1024,10 +1047,8 @@ def run_hmmsearch(ncpus: int, resource_monitor: Optional["ResourceMonitor"] = No
         ncpus (int): Number of CPUs to use.
         resource_monitor (ResourceMonitor, optional): Resource monitor object. Defaults to None.
     """
-    typer.secho(
-        "Running hmmsearch on merged genomes for the hmm models file:\n",
-        fg=typer.colors.BRIGHT_GREEN,
-    )
+    logger = _get_logger()
+    logger.info("Running hmmsearch on merged genomes for the hmm models file")
 
     path_to_tblout = (
         Path(tmp_dir_path) / "symclatron_2384_union_features_hmmsearch.tblout"
@@ -1098,13 +1119,10 @@ def run_hmmsearch(ncpus: int, resource_monitor: Optional["ResourceMonitor"] = No
                            f"{hit['env_to']:4d} {hit['acc']:6.3f}\n"
                     f.write(line)
 
-        typer.secho(
-            f"[OK] Hmmsearch output saved at: {path_to_tblout} \n",
-            fg=typer.colors.BRIGHT_MAGENTA,
-        )
+        logger.info("Hmmsearch output saved at: %s", path_to_tblout)
 
     except Exception as e:
-        typer.secho(f"Error in pyhmmer search: {str(e)}", fg=typer.colors.RED, err=True)
+        logger.error("Error in pyhmmer search: %s", e)
         raise
 
 
@@ -1120,6 +1138,7 @@ def run_hmmsearch_uni56(ncpus: int, resource_monitor: Optional["ResourceMonitor"
     uni56_tblout = Path(tmp_dir_path) / "uni56_hmmsearch.tblout"
     sequence_file_path = tmp_dir_path + "/merged_genomes.faa"
 
+    logger = _get_logger()
     try:
         # Use resource monitoring context manager for the entire UNI56 HMMER search
         if resource_monitor:
@@ -1181,22 +1200,18 @@ def run_hmmsearch_uni56(ncpus: int, resource_monitor: Optional["ResourceMonitor"
                            f"{hit['env_to']:4d} {hit['acc']:6.3f}\n"
                     f.write(line)
 
-        typer.secho(
-            f"[OK] Hmmsearch output saved at: {uni56_tblout} \n",
-            fg=typer.colors.BRIGHT_MAGENTA,
-        )
+        logger.info("Hmmsearch output saved at: %s", uni56_tblout)
 
     except Exception as e:
-        typer.secho(f"Error in UNI56 pyhmmer search: {str(e)}", fg=typer.colors.RED, err=True)
+        logger.error("Error in UNI56 pyhmmer search: %s", e)
         raise
 
 
 
 def save_list_of_models() -> None:
     """Save a list of models from HMM files using pyhmmer."""
-    typer.secho(
-        "Saving list of models for each hmm model file", fg=typer.colors.BRIGHT_GREEN
-    )
+    logger = _get_logger()
+    logger.info("Saving list of models for each hmm model file")
 
     hmm_files = [
         os.path.join(script_dir, "data/symclatron_2384_union_features.hmm"),
@@ -1216,7 +1231,7 @@ def save_list_of_models() -> None:
                         # Write the model name (equivalent to "NAME" field)
                         output_models_list_file.write(hmm.name + "\n")
         except Exception as e:
-            typer.secho(f"Error reading HMM file {hmmfile}: {str(e)}", fg=typer.colors.RED, err=True)
+            logger.error("Error reading HMM file %s: %s", hmmfile, e)
             # Fallback to the original text parsing method
             with open(models_list_file_path, "w") as output_models_list_file:
                 with open(hmmfile, "r") as my_hmmfile:
@@ -1224,7 +1239,7 @@ def save_list_of_models() -> None:
                         if re.search("NAME", line):
                             output_models_list_file.write(line.replace("NAME  ", ""))
 
-    typer.secho("[OK] Models list saved\n", fg=typer.colors.BRIGHT_MAGENTA)
+    logger.info("Models list saved")
 
 
 def save_list_of_genomes(tmp_genomes_path: str) -> None:
@@ -1233,7 +1248,8 @@ def save_list_of_genomes(tmp_genomes_path: str) -> None:
     Args:
         tmp_genomes_path (str): Path to the temporary directory containing the genomes.
     """
-    typer.secho("Saving list of genomes", fg=typer.colors.BRIGHT_GREEN)
+    logger = _get_logger()
+    logger.info("Saving list of genomes")
 
     list_of_genome_files = glob.glob(f"{tmp_genomes_path}/genome_*.faa")
 
@@ -1245,16 +1261,14 @@ def save_list_of_genomes(tmp_genomes_path: str) -> None:
                 each_element.split("/")[-1].split(".faa")[0] + "\n"
             )
 
-    typer.secho("[OK] Genomes list saved\n", fg=typer.colors.BRIGHT_MAGENTA)
+    logger.info("Genomes list saved")
 
 
 
 def hmmer_results_to_pandas_df() -> None:
     """Convert HMMER results to a pandas DataFrame."""
-    typer.secho(
-        "Generating matrix of highest scores from the hmmsearch output",
-        fg=typer.colors.BRIGHT_GREEN,
-    )
+    logger = _get_logger()
+    logger.info("Generating matrix of highest scores from the hmmsearch output")
 
     list_of_tblout_hmmsearch_output_files = glob.glob(
         tmp_dir_path + "/*_hmmsearch.tblout"
@@ -1357,9 +1371,7 @@ def hmmer_results_to_pandas_df() -> None:
             sep="\t",
         )
 
-    typer.secho(
-        "[OK] All 'hits_all_models' tables saved\n", fg=typer.colors.BRIGHT_MAGENTA
-    )
+    logger.info("All 'hits_all_models' tables saved")
 
 
 
@@ -1407,12 +1419,10 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
     Args:
         resource_monitor (ResourceMonitor, optional): Resource monitor object. Defaults to None.
     """
+    logger = _get_logger()
     for each_model in ["symcla", "symreg", "hostcla"]:
         start_time = time.time()
-        typer.secho(
-            f"Classifying genomes using the {each_model} model",
-            fg=typer.colors.BRIGHT_GREEN,
-        )
+        logger.info("Classifying genomes using the %s model", each_model)
 
         all_tblout_df = pd.read_csv(
             f"{tmp_dir_path}/{each_model}_hits_all_models.tsv",
@@ -1473,7 +1483,7 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
             predictions_df["symreg_score"] = symreg_prediction
 
             # SHAP calculation only for symreg model
-            typer.secho("Computing SHAP values", fg=typer.colors.BRIGHT_GREEN)
+            logger.info("Computing SHAP values")
             explainer = _build_shap_explainer(xgb_model, all_tblout_df)
             shap_values = explainer(all_tblout_df)
 
@@ -1510,10 +1520,7 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
             # Log resource usage for each ML model
             resource_monitor.log_python_task(f"ML Classification ({each_model})", duration, None, f"Model: {each_model}")
 
-        typer.secho(
-            f"[OK] Genomes classified with {each_model}\n",
-            fg=typer.colors.BRIGHT_MAGENTA,
-        )
+        logger.info("Genomes classified with %s", each_model)
 
 
 
@@ -1524,7 +1531,8 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
         resource_monitor (ResourceMonitor, optional): Resource monitor object. Defaults to None.
     """
     start_time = time.time()
-    typer.secho("Computing feature contribution for symreg", fg=typer.colors.BRIGHT_GREEN)
+    logger = _get_logger()
+    logger.info("Computing feature contribution for symreg")
 
     # Only calculate for symreg model
     each_model = "symreg"
@@ -1585,10 +1593,7 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
     if resource_monitor:
         resource_monitor.log_python_task("Feature Contribution Analysis (SHAP)", duration, None, "SHAP explainer analysis")
 
-    typer.secho(
-        f"[OK] Feature contribution calculated for {each_model}\n",
-        fg=typer.colors.BRIGHT_MAGENTA,
-    )
+    logger.info("Feature contribution calculated for %s", each_model)
 
 
 
@@ -1605,7 +1610,8 @@ def count_uni56() -> None:
 
 def remove_temp_files() -> None:
     """Remove the temporary files directory."""
-    typer.secho(message="Removing tmp folder\n", fg=typer.colors.BRIGHT_GREEN)
+    logger = _get_logger()
+    logger.info("Removing tmp folder")
     shutil.rmtree(tmp_dir_path)
 
 
@@ -1616,7 +1622,8 @@ def calculate_weighted_distances(resource_monitor: Optional["ResourceMonitor"] =
     and the rows in the training set for both symreg and symcla models.
     """
     start_time = time.time()
-    typer.secho("Calculating weighted distances", fg=typer.colors.BRIGHT_GREEN)
+    logger = _get_logger()
+    logger.info("Calculating weighted distances")
 
     # Process both models: symreg and symcla
     for model_type in ["REG", "CLA"]:
@@ -1680,7 +1687,7 @@ def calculate_weighted_distances(resource_monitor: Optional["ResourceMonitor"] =
         # Save the result to a file
         result_path = f"{tmp_dir_path}/min_distances_{model_type.lower()}.tsv"
         result_df.to_csv(result_path, sep="\t", index=False)
-        typer.secho(f"[OK] Calculated weighted distances for {model_type}\n", fg=typer.colors.BRIGHT_MAGENTA)
+        logger.info("Calculated weighted distances for %s", model_type)
 
     end_time = time.time()
     duration = end_time - start_time
@@ -1700,18 +1707,15 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
     - min_distance_weighted_CLA
     """
     start_time = time.time()
-    typer.secho("Applying neural network for final classification", fg=typer.colors.BRIGHT_GREEN)
+    logger = _get_logger()
+    logger.info("Applying neural network for final classification")
 
     try:
         # Force TensorFlow to use CPU only
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
     except Exception:
-        typer.secho(
-            "Error: Required libraries not installed. Please install tensorflow and joblib.",
-            fg=typer.colors.BRIGHT_RED,
-            err=True,
-        )
+        logger.error("Required libraries not installed. Please install tensorflow and joblib.")
         exit(1)
 
     # Load the model and scaler using absolute paths based on script location
@@ -1721,11 +1725,7 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
         loaded_model = load_model(nn_model_path)
         loaded_scaler = joblib.load(nn_scaler_path)
     except (OSError, IOError) as e:
-        typer.secho(
-            f"Error loading neural network model or scaler: {str(e)}",
-            fg=typer.colors.BRIGHT_RED,
-            err=True,
-        )
+        logger.error("Error loading neural network model or scaler: %s", e)
         exit(1)
 
     # Load the required data files
@@ -1778,7 +1778,7 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
     output_df['taxon_oid'] = output_df['taxon_oid'].replace(genome_dict)
 
     # Save the final simplified output
-    print(output_df)
+    _log_lines(logger, output_df.to_string(index=False), logging.INFO)
     output_df.to_csv(f"{savedir}/symclatron_results.tsv", sep="\t", index=False)
 
     end_time = time.time()
@@ -1787,10 +1787,7 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
     if resource_monitor:
         resource_monitor.log_python_task("Neural Network Classification", duration, None, "Deep learning inference")
 
-    typer.secho(
-        f"[OK] Neural network classification completed\n",
-        fg=typer.colors.BRIGHT_MAGENTA,
-    )
+    logger.info("Neural network classification completed")
 
 def predict_with_neural_network_batch(model: Any, scaler: Any, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, List[List[float]]]:
     """
@@ -1820,7 +1817,7 @@ def predict_with_neural_network_batch(model: Any, scaler: Any, df: pd.DataFrame)
     features_scaled = scaler.transform(features)
 
     # Get model predictions for all rows
-    probabilities = model.predict(features_scaled)
+    probabilities = model.predict(features_scaled, verbose=0)
     predictions = np.argmax(probabilities, axis=1)
 
     # Get confidence for each prediction (probability of the predicted class)
@@ -2097,12 +2094,12 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
             # Create summary text for console
             logger.info("Classification summary")
             logger.info(f"Total genomes analyzed: {len(results_df)}")
-            logger.info("\nClassification counts:")
+            logger.info("Classification counts:")
             for category, count in class_counts.items():
                 percentage = (count / len(results_df)) * 100
                 logger.info(f"  - {category}: {count} ({percentage:.1f}%)")
 
-            logger.info("\nCompleteness statistics (UNI56 markers):")
+            logger.info("Completeness statistics (UNI56 markers):")
             if completeness_stats:
                 logger.info(f"  - Mean: {completeness_stats['mean']:.2f}%")
                 logger.info(f"  - Median: {completeness_stats['median']:.2f}%")
@@ -2114,7 +2111,7 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
                 logger.info("  - Min: N/A")
                 logger.info("  - Max: N/A")
 
-            logger.info("\nConfidence statistics:")
+            logger.info("Confidence statistics:")
             if confidence_stats:
                 logger.info(f"  - Mean: {confidence_stats['mean']:.2f}")
                 logger.info(f"  - Median: {confidence_stats['median']:.2f}")
@@ -2163,7 +2160,7 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
                     f.write("Min: N/A\n")
                     f.write("Max: N/A\n")
 
-            logger.info(f"\nSummary saved to: {summary_file}")
+            logger.info("Summary saved to: %s", summary_file)
 
         else:
             logger.warning("Classification column not found in results. Cannot generate complete summary.")
@@ -2175,13 +2172,15 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
 
 def classify(
     genome_dir: str = "input_genomes",
-    save_dir: str = "output_symclatron",
+    save_dir: Optional[str] = None,
     deltmp: bool = True,
     ncpus: int = 2,
     quiet: bool = False,
     verbose: bool = False,
     input_kind: str = "auto",
     input_ext: Optional[List[str]] = None,
+    run_label: Optional[str] = None,
+    show_header: bool = False,
 ) -> None:
     """
     Main classification function.
@@ -2199,9 +2198,11 @@ def classify(
     deltmp (bool): Whether to delete temporary files.
     input_kind (str): Force input kind: auto|contigs|genes|proteins.
     input_ext (list[str] | None): Optional file extension filter when genome_dir is a directory.
+    run_label (str | None): Optional run label to log at start.
     """
     start_time = time.time()
-
+    if save_dir is None:
+        save_dir = f"output_Symclatron_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     save_dir = _abs_path(save_dir)
     genome_dir = _abs_path(genome_dir)
 
@@ -2218,11 +2219,15 @@ def classify(
     # Initialize resource monitoring using the same log directory
     resource_monitor = ResourceMonitor(str(log_dir))
 
+    if show_header:
+        print_header(logger)
+    if run_label:
+        logger.info(run_label)
     # Rest of the function remains unchanged
-    logger.info("Starting symclatron classifier")
-    if not quiet:
-        greetings()
-        init_message_classify()
+    logger.info("Starting symclatron classifier (version %s).", __version__)
+    logger.info("Output directory: %s", savedir)
+    logger.info("Threads: %s", ncpus)
+    logger.info("Input kind: %s", input_kind)
 
     script_path = Path(os.path.abspath(__file__))
     script_dir = script_path.parent
@@ -2252,42 +2257,33 @@ def classify(
         tmp_genome_dir_path=tmp_genomes_path, savedir=savedir
     )
 
-    logger.info("Merging genomes")
     merge_genomes(tmp_genomes_path)
 
-    logger.info("Running hmmsearch for symclatron models")
     run_hmmsearch(ncpus=ncpus, resource_monitor=resource_monitor)
 
     logger.info("Running hmmsearch for UNI56 markers")
     run_hmmsearch_uni56(ncpus=ncpus, resource_monitor=resource_monitor)
 
-    logger.info("Saving models list")
     save_list_of_models()
 
-    logger.info("Saving genomes list")
     save_list_of_genomes(tmp_genomes_path=tmp_genomes_path)
 
-    logger.info("Processing hmmsearch results")
     hmmer_results_to_pandas_df()
 
     logger.info("Splitting features for different models")
     split_hits_all_models_for_3_models()
 
-    logger.info("Running classification models")
     classify_genomes_internal(resource_monitor)
 
-    logger.info("Computing feature contributions")
     compute_feature_contribution(resource_monitor)
 
     logger.info("Counting UNI56 markers")
     count_uni56()
 
     # Calculate weighted distances for REG and CLA models
-    logger.info("Calculating weighted distances")
     calculate_weighted_distances(resource_monitor)
 
     # Apply neural network for final classification
-    logger.info("Applying neural network for final classification")
     apply_neural_network(resource_monitor)
 
     # Generate summary report
@@ -2314,9 +2310,10 @@ def classify(
     execution_time_mins = round((end_time - start_time)/60, 1)
 
     logger.info(f"Classification completed in {execution_time_secs} seconds ({execution_time_mins} minutes)")
-    typer.secho(
-        message=f"Total time: {execution_time_secs} seconds ({execution_time_mins} minutes)",
-        fg=typer.colors.BRIGHT_MAGENTA,
+    logger.info(
+        "Total time: %s seconds (%s minutes)",
+        execution_time_secs,
+        execution_time_mins,
     )
 
     # Finalize resource monitoring and generate report
@@ -2324,10 +2321,7 @@ def classify(
 
     # Display final resource summary
     logger.info("Resource usage summary saved to resource log file")
-    typer.secho(
-        f"Resource usage logs saved to: {resource_monitor.log_file}",
-        fg=typer.colors.BRIGHT_GREEN,
-    )
+    logger.info("Resource usage logs saved to: %s", resource_monitor.log_file)
 
 
 app = typer.Typer(
@@ -2437,11 +2431,11 @@ def classify_genomes(
         "--input-ext",
         help="Only include files with these extensions (repeatable), e.g. --input-ext .fna",
     ),
-    output_dir: str = typer.Option(
-        "output_symclatron",
+    output_dir: Optional[str] = typer.Option(
+        None,
         "--output-dir",
         "-o",
-        help="Output directory for results"
+        help="Output directory for results. Defaults to output_Symclatron_<DATETIME>."
     ),
     keep_tmp: bool = typer.Option(
         False,
@@ -2476,6 +2470,8 @@ def classify_genomes(
     predict/translate proteins before running the classifier.
     """
     genome_dir = _abs_path(genome_dir)
+    if output_dir is None:
+        output_dir = f"output_Symclatron_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     output_dir = _abs_path(output_dir)
 
     try:
@@ -2504,18 +2500,6 @@ def classify_genomes(
         typer.secho("Tip: Run 'symclatron setup' to download required data files", fg=typer.colors.YELLOW)
         raise typer.Exit(1)
 
-    if not quiet:
-        print_header()
-        init_message_classify()
-        typer.secho(f"Input path: {_abs_path(genome_dir)}", fg=typer.colors.BLUE)
-        typer.secho(f"Output directory: {_abs_path(output_dir)}", fg=typer.colors.BLUE)
-        typer.secho(f"Threads: {threads}", fg=typer.colors.BLUE)
-        typer.secho(f"Input kind: {normalized_kind}", fg=typer.colors.BLUE)
-        typer.secho(f"Found {len(input_files)} genome files", fg=typer.colors.BLUE)
-
-        if keep_tmp:
-            typer.secho("Temporary files will be preserved", fg=typer.colors.YELLOW)
-
     # Call the original classify function with updated parameters
     classify(
         genome_dir=genome_dir,
@@ -2526,6 +2510,7 @@ def classify_genomes(
         verbose=verbose,
         input_kind=normalized_kind,
         input_ext=input_ext or None,
+        show_header=not quiet,
     )
 
 
@@ -2541,11 +2526,14 @@ def run_test(
         "--mode",
         help="Test mode: proteins|contigs|both",
     ),
-    output_dir: str = typer.Option(
-        "test_output_symclatron",
+    output_dir: Optional[str] = typer.Option(
+        None,
         "--output-dir",
         "-o",
-        help="Output directory for test results"
+        help=(
+            "Output directory for test results (FAA/FNA subfolders will be created). "
+            "Defaults to output_test_Symclatron_<DATETIME>."
+        )
     )
 ):
     """
@@ -2554,6 +2542,8 @@ def run_test(
     This command runs a quick test using the provided test genomes
     to verify that symclatron is working correctly.
     """
+    if output_dir is None:
+        output_dir = f"output_test_Symclatron_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     output_dir = _abs_path(output_dir)
     test_genomes_root = _abs_path(os.path.join(script_dir, "data", "test_genomes"))
     test_proteins_dir = _abs_path(os.path.join(test_genomes_root, "faa"))
@@ -2563,7 +2553,6 @@ def run_test(
         typer.secho("Error: Test genomes not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
         raise typer.Exit(1)
 
-    print_header()
     normalized_mode = (mode or "").strip().lower()
     if normalized_mode not in {"proteins", "contigs", "both"}:
         typer.secho("Error: --mode must be one of: proteins, contigs, both", fg=typer.colors.RED)
@@ -2584,21 +2573,21 @@ def run_test(
                 fg=typer.colors.RED,
             )
             raise typer.Exit(1)
-        protein_out = output_dir if normalized_mode == "proteins" else str(Path(output_dir) / "proteins")
-        typer.secho(
-            f"Running test 1/2 (protein FASTA; {len(protein_files)} files): {_abs_path(protein_input_dir)}",
-            fg=typer.colors.BLUE,
-            bold=True,
-        )
-        classify_genomes(
+        protein_out = str(Path(output_dir) / "faa")
+        classify(
             genome_dir=protein_input_dir,
+            save_dir=protein_out,
+            deltmp=not keep_tmp,
+            ncpus=2,
+            quiet=True,  # Suppress redundant headers since we already printed them
+            verbose=False,
             input_kind="proteins",
             input_ext=[".faa"],
-            output_dir=protein_out,
-            keep_tmp=keep_tmp,
-            threads=2,
-            quiet=True,  # Suppress redundant headers since we already printed them
-            verbose=False
+            run_label=(
+                f"Running test 1/2 (protein FASTA; {len(protein_files)} files): "
+                f"{_abs_path(protein_input_dir)}"
+            ),
+            show_header=True,
         )
 
     if normalized_mode in {"contigs", "both"}:
@@ -2610,21 +2599,21 @@ def run_test(
             typer.secho(f"Warning: {message}", fg=typer.colors.YELLOW)
             return
         contig_files = _list_input_fasta_files(test_contigs_dir, [".fna"])
-        contig_out = output_dir if normalized_mode == "contigs" else str(Path(output_dir) / "contigs")
-        typer.secho(
-            f"Running test 2/2 (contig FASTA -> protein prediction; {len(contig_files)} files): {test_contigs_dir}",
-            fg=typer.colors.BLUE,
-            bold=True,
-        )
-        classify_genomes(
+        contig_out = str(Path(output_dir) / "fna")
+        classify(
             genome_dir=test_contigs_dir,
+            save_dir=contig_out,
+            deltmp=not keep_tmp,
+            ncpus=2,
+            quiet=True,
+            verbose=False,
             input_kind="contigs",
             input_ext=[".fna"],
-            output_dir=contig_out,
-            keep_tmp=keep_tmp,
-            threads=2,
-            quiet=True,
-            verbose=False
+            run_label=(
+                "Running test 2/2 (contig FASTA -> protein prediction; "
+                f"{len(contig_files)} files): {test_contigs_dir}"
+            ),
+            show_header=True,
         )
 
 

@@ -30,7 +30,8 @@ Install, setup, and test:
 pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 symclatron setup --force
 symclatron test
-# Outputs are written under `test_output_symclatron/proteins` and `test_output_symclatron/contigs` (or under `--output-dir` if provided).
+# Outputs are written under `output_test_Symclatron_<DATETIME>/faa` and `output_test_Symclatron_<DATETIME>/fna`
+# (or under `--output-dir` if provided).
 ```
 
 ### Option 2: Mamba or Conda
@@ -39,7 +40,8 @@ symclatron test
 mamba create -n symclatron-0.9.8 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 mamba run -n symclatron-0.9.8 symclatron setup
 mamba run -n symclatron-0.9.8 symclatron test
-# Outputs are written under `test_output_symclatron/proteins` and `test_output_symclatron/contigs` (or under `--output-dir` if provided).
+# Outputs are written under `output_test_Symclatron_<DATETIME>/faa` and `output_test_Symclatron_<DATETIME>/fna`
+# (or under `--output-dir` if provided).
 ```
 
 ## Setup data (required)
@@ -101,7 +103,7 @@ symclatron classify [OPTIONS]
 - `--genome-dir, -i`: Directory (or FASTA file) containing genome inputs (.faa/.fa/.fna/.fasta/.ffn/.fnn) [default: input_genomes]
 - `--input-kind`: Force input kind: `auto`, `proteins`, `genes`, `contigs` [default: auto]
 - `--input-ext`: Only include files with these extensions (repeatable), e.g. `--input-ext .fna` (also matches `.fna.gz`)
-- `--output-dir, -o`: Output directory for results [default: output_symclatron]
+- `--output-dir, -o`: Output directory for results [default: output_Symclatron_<DATETIME>]
 - `--keep-tmp`: Keep temporary files for debugging
 - `--threads, -t`: Number of threads for HMMER searches [default: 2]
 - `--quiet, -q`: Suppress progress messages
