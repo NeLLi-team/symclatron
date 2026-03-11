@@ -14,6 +14,8 @@ symclatron is a tool that classifies microbial genomes (protein FASTA, or nucleo
 
 Recommended install paths are `Pixi` (recommended) or `Mamba`/`Conda`.
 
+Validated packaged installs currently include `Linux x86_64` and Apple Silicon `arm64` macOS for the `pixi global install` workflow.
+
 ### Option 1: `Pixi` (recommended)
 
 Install `pixi`:
@@ -56,7 +58,7 @@ symclatron setup
 
 ## Input file requirements
 
-- **Input**: a directory with one genome per file
+- **Input**: `--genome-dir` points to a directory with one genome FASTA per file, or to a single FASTA file
 - **Supported FASTA types**:
   - **Proteins (recommended)**: `.faa` (also accepts common protein FASTA suffixes, optionally gzipped)
   - **Nucleotide contigs/assemblies**: `.fa`, `.fna`, `.fasta` (proteins predicted with `pyrodigal`)
@@ -77,6 +79,9 @@ symclatron classify --genome-dir /path/to/contigs/ --output-dir results/
 
 # Ambiguous nucleotide files: force contig mode and only use .fna files
 symclatron classify --genome-dir /path/to/inputs/ --input-kind contigs --input-ext .fna --output-dir results/
+
+# Apply a conservative confidence threshold and relabel lower-confidence calls as Unknown
+symclatron classify --genome-dir /path/to/genomes/ --confidence-threshold 0.725 --output-dir results/
 ```
 
 ### Getting help
@@ -108,6 +113,7 @@ symclatron classify [OPTIONS]
 - `--output-dir, -o`: Output directory for results [default: output_Symclatron_<DATETIME>]
 - `--keep-tmp`: Keep temporary files for debugging
 - `--threads, -t`: Number of threads for HMMER searches [default: 2]
+- `--confidence-threshold`: Optional confidence threshold for conservative interpretation; when provided, low-confidence predictions are relabeled as `Unknown` in an additional `classification_thresholded` column
 - `--quiet, -q`: Suppress progress messages
 - `--verbose`: Show detailed progress information
 
@@ -119,6 +125,9 @@ symclatron classify --genome-dir genomes/ --output-dir results/
 
 # With more threads and keeping temporary files
 symclatron classify -i genomes/ -o results/ --threads 8 --keep-tmp
+
+# Apply the recommended confidence threshold for conservative interpretation
+symclatron classify --genome-dir genomes/ --confidence-threshold 0.725
 
 # Quiet mode
 symclatron classify --genome-dir genomes/ --quiet
@@ -137,10 +146,12 @@ The classification results are saved in the specified output directory:
    - `taxon_oid` - Genome identifier
    - `completeness_UNI56` - Completeness metric based on universal marker genes
    - `confidence` - Overall confidence score for the classification
-   - `classification` - Final classification label:
+   - `classification` - Raw classification label:
      - `Free-living`
      - `Symbiont;Host-associated`
      - `Symbiont;Obligate-intracellular`
+   - `classification_thresholded` - Optional thresholded label when `--confidence-threshold` is used; lower-confidence predictions are reported as `Unknown`
+   - `passes_confidence_threshold` - Optional boolean flag indicating whether the prediction passed the chosen threshold
 
 2. **`classification_summary.txt`** - Summary report with statistics
 
@@ -149,6 +160,10 @@ The classification results are saved in the specified output directory:
 ### Debug files
 
 When using `--keep-tmp`, intermediate files are preserved in `tmp/` directory for analysis.
+
+### Confidence guidance
+
+The raw `classification` column always reports the highest-probability class from the model. For conservative interpretation, we recommend using a confidence threshold of `0.725`. When `--confidence-threshold 0.725` is supplied, the results table also includes `classification_thresholded` and `passes_confidence_threshold` columns so that lower-confidence predictions are explicitly separated from higher-confidence calls.
 
 ## Performance
 

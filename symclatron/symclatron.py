@@ -52,11 +52,18 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.9.10"
+__version__ = "0.9.11"
+RECOMMENDED_CONFIDENCE_THRESHOLD = 0.725
+confidence_threshold: Optional[float] = None
 
 def _abs_path(path: Union[str, Path]) -> str:
     """Return an absolute path without requiring it to exist."""
     return os.path.abspath(os.path.expanduser(str(path)))
+
+
+def _format_threshold_value(value: float) -> str:
+    """Format a threshold value without losing user-relevant precision."""
+    return repr(float(value))
 
 
 def _get_logger() -> logging.Logger:
@@ -1770,6 +1777,14 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
         'confidence': nn_results['confidence'],
     })
 
+    if confidence_threshold is not None:
+        output_df["passes_confidence_threshold"] = output_df["confidence"] >= confidence_threshold
+        output_df["classification_thresholded"] = np.where(
+            output_df["passes_confidence_threshold"],
+            output_df["classification"],
+            "Unknown",
+        )
+
     # Rename the genome names back to the original names
     genome_dict_path = f"{tmp_dir_path}/genomes_dict.json"
     with open(genome_dict_path, "r") as infile:
@@ -2070,6 +2085,9 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
         # Count genomes in each classification category
         if 'classification' in results_df.columns:
             class_counts = results_df['classification'].value_counts()
+            thresholded_counts = None
+            if 'classification_thresholded' in results_df.columns:
+                thresholded_counts = results_df['classification_thresholded'].value_counts()
 
             # Calculate completeness statistics
             completeness_stats = None
@@ -2123,6 +2141,19 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
                 logger.info("  - Min: N/A")
                 logger.info("  - Max: N/A")
 
+            logger.info(
+                "Recommended confidence threshold for conservative interpretation: %s",
+                _format_threshold_value(RECOMMENDED_CONFIDENCE_THRESHOLD),
+            )
+            if thresholded_counts is not None and confidence_threshold is not None:
+                logger.info(
+                    "Thresholded classification counts (confidence >= %s):",
+                    _format_threshold_value(confidence_threshold),
+                )
+                for category, count in thresholded_counts.items():
+                    percentage = (count / len(results_df)) * 100
+                    logger.info(f"  - {category}: {count} ({percentage:.1f}%)")
+
             # Create a formal summary file
             summary_file = f"{output_dir}/classification_summary.txt"
             with open(summary_file, 'w') as f:
@@ -2160,6 +2191,22 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
                     f.write("Min: N/A\n")
                     f.write("Max: N/A\n")
 
+                f.write("\nConfidence threshold guidance\n\n")
+                f.write(
+                    f"Recommended confidence threshold for conservative interpretation: "
+                    f"{_format_threshold_value(RECOMMENDED_CONFIDENCE_THRESHOLD)}\n"
+                )
+                if confidence_threshold is not None:
+                    f.write(
+                        f"User-applied confidence threshold: "
+                        f"{_format_threshold_value(confidence_threshold)}\n"
+                    )
+                    if thresholded_counts is not None:
+                        f.write("\nThresholded classification counts\n\n")
+                        for category, count in thresholded_counts.items():
+                            percentage = (count / len(results_df)) * 100
+                            f.write(f"{category}: {count} ({percentage:.1f}%)\n")
+
             logger.info("Summary saved to: %s", summary_file)
 
         else:
@@ -2181,6 +2228,7 @@ def classify(
     input_ext: Optional[List[str]] = None,
     run_label: Optional[str] = None,
     show_header: bool = False,
+    confidence_threshold_value: Optional[float] = None,
 ) -> None:
     """
     Main classification function.
@@ -2228,6 +2276,15 @@ def classify(
     logger.info("Output directory: %s", savedir)
     logger.info("Threads: %s", ncpus)
     logger.info("Input kind: %s", input_kind)
+    logger.info(
+        "Recommended confidence threshold for conservative interpretation: %s",
+        _format_threshold_value(RECOMMENDED_CONFIDENCE_THRESHOLD),
+    )
+    if confidence_threshold_value is not None:
+        logger.info(
+            "User-applied confidence threshold: %s (low-confidence predictions relabeled as Unknown in classification_thresholded)",
+            _format_threshold_value(confidence_threshold_value),
+        )
 
     script_path = Path(os.path.abspath(__file__))
     script_dir = script_path.parent
@@ -2241,6 +2298,8 @@ def classify(
 
     global genomedir
     genomedir = genome_dir
+    global confidence_threshold
+    confidence_threshold = confidence_threshold_value
     logger.info(f"Using input path: {genomedir}")
 
     # Validate input data before processing
@@ -2450,6 +2509,17 @@ def classify_genomes(
         max=32,
         help="Number of threads for HMMER searches"
     ),
+    confidence_threshold: Optional[float] = typer.Option(
+        None,
+        "--confidence-threshold",
+        min=0.0,
+        max=1.0,
+        help=(
+            "Optional confidence threshold for conservative interpretation. "
+            "If provided, low-confidence predictions are relabeled as Unknown in "
+            "the classification_thresholded column."
+        ),
+    ),
     quiet: bool = typer.Option(
         False,
         "--quiet",
@@ -2484,6 +2554,10 @@ def classify_genomes(
         typer.secho(f"Error: Input path '{genome_dir}' does not exist", fg=typer.colors.RED)
         raise typer.Exit(1)
 
+    if confidence_threshold is not None and confidence_threshold <= 0:
+        typer.secho("Error: --confidence-threshold must be > 0 and <= 1", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
     input_files = _list_input_fasta_files(genome_dir, input_ext or None)
     if not input_files:
         extra = f" (extensions: {', '.join(_normalize_input_extensions(input_ext))})" if input_ext else ""
@@ -2510,6 +2584,7 @@ def classify_genomes(
         verbose=verbose,
         input_kind=normalized_kind,
         input_ext=input_ext or None,
+        confidence_threshold_value=confidence_threshold,
         show_header=not quiet,
     )
 
