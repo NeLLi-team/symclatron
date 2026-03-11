@@ -2,21 +2,37 @@
 
 ![Figure 1](assets/fig_1_main.png)
 
-**ML-based classification of microbial symbiotic lifestyles**
+`symclatron` classifies microbial genomes into three lifestyle categories:
 
-symclatron is a tool that classifies microbial genomes (protein FASTA, or nucleotide FASTA with automatic protein prediction) into three lifestyle categories:
+- `Free-living`
+- `Symbiont;Host-associated`
+- `Symbiont;Obligate-intracellular`
 
-- **Free-living**
-- **Symbiont; Host-associated**
-- **Symbiont; Obligate-intracellular**
+It accepts protein FASTA directly, or nucleotide FASTA with automatic conversion to proteins before classification.
 
-## Installation and quick start
+## What symclatron implements
 
-Recommended install paths are `Pixi` (recommended) or `Mamba`/`Conda`.
+For each genome, `symclatron` currently performs the following workflow:
 
-Validated packaged installs currently include `Linux x86_64` and Apple Silicon `arm64` macOS for the `pixi global install` workflow.
+1. Validates the input FASTA file(s) and checks that genome identifiers derived from filenames are unique.
+2. Detects whether each input file contains proteins, nucleotide genes/CDS, or nucleotide contigs/assemblies.
+3. Converts nucleotide input to proteins.
+   - Gene/CDS FASTA (`.ffn`, `.fnn`) is translated in frame.
+   - Contig/assembly FASTA (`.fa`, `.fas`, `.fasta`, `.fna`) is gene-called and translated with `pyrodigal`.
+4. Runs HMM searches against the `symclatron` feature set and the `UNI56` marker set.
+5. Builds feature matrices for the `symcla`, `symreg`, and `hostcla` XGBoost submodels.
+6. Computes additional distance-based features relative to the training data.
+7. Applies the final neural-network model to produce the reported class and confidence score.
+8. Optionally relabels low-confidence predictions as `Unknown` when `--confidence-threshold` is provided.
+9. Writes final tables, summaries, logs, and optional intermediate files.
 
-### Option 1: `Pixi` (recommended)
+The final reported class is produced by the neural-network stage. The `hostcla` model is still run and its intermediate bitscore table is retained in the output directory.
+
+## Installation
+
+The project metadata currently targets Python `3.12` on POSIX/Linux systems. The recommended install path is `pixi`; `mamba`/`conda` also works.
+
+### Option 1: `pixi` (recommended)
 
 Install `pixi`:
 
@@ -24,158 +40,224 @@ Install `pixi`:
 curl -fsSL https://pixi.sh/install.sh | sh
 ```
 
-More information about `pixi` can be found in the [pixi documentation](https://pixi.sh/).
-
-Install, setup, and test:
+Then install `symclatron` and download the data bundle:
 
 ```sh
 pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
-symclatron setup --force
-symclatron test
-# Outputs are written under `output_test_Symclatron_<DATETIME>/faa` and `output_test_Symclatron_<DATETIME>/fna`
-# (or under `--output-dir` if provided).
-```
-
-### Option 2: Mamba or Conda
-
-```sh
-mamba create -n symclatron-0.9.10 -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
-mamba run -n symclatron-0.9.10 symclatron setup
-mamba run -n symclatron-0.9.10 symclatron test
-# Outputs are written under `output_test_Symclatron_<DATETIME>/faa` and `output_test_Symclatron_<DATETIME>/fna`
-# (or under `--output-dir` if provided).
-```
-
-Note: `symcla` is a short alias for `symclatron`. Any command works with either name (for example, `symcla test`).
-
-## Setup data (required)
-
-Before using `symclatron` for the first time, you need to download the required database files. This only needs to be done once.
-
-```bash
 symclatron setup
 ```
 
-## Input file requirements
+Run the bundled self-test:
 
-- **Input**: `--genome-dir` points to a directory with one genome FASTA per file, or to a single FASTA file
-- **Supported FASTA types**:
-  - **Proteins (recommended)**: `.faa` (also accepts common protein FASTA suffixes, optionally gzipped)
-  - **Nucleotide contigs/assemblies**: `.fa`, `.fna`, `.fasta` (proteins predicted with `pyrodigal`)
-  - **Nucleotide genes/CDS**: `.ffn`, `.fnn` (translated in-frame)
-- **Quality**: Complete or near-complete genomes recommended, but good performance for MQ MAGs are expected
-
-`symclatron` auto-detects whether each input file contains proteins, genes, or contigs and converts nucleotide inputs to proteins before running the standard workflow.
-If your nucleotide file extensions are ambiguous, you can override detection with `--input-kind contigs` or `--input-kind genes`.
-
-### Classify your genomes
-
-```bash
-# Protein FASTA input
-symclatron classify --genome-dir /path/to/genomes/ --output-dir results/
-
-# Nucleotide contigs/assemblies input (auto protein prediction)
-symclatron classify --genome-dir /path/to/contigs/ --output-dir results/
-
-# Ambiguous nucleotide files: force contig mode and only use .fna files
-symclatron classify --genome-dir /path/to/inputs/ --input-kind contigs --input-ext .fna --output-dir results/
-
-# Apply a conservative confidence threshold and relabel lower-confidence calls as Unknown
-symclatron classify --genome-dir /path/to/genomes/ --confidence-threshold 0.725 --output-dir results/
+```sh
+symclatron test
 ```
 
-### Getting help
+### Option 2: `mamba` or `conda`
 
-```bash
-symclatron --help
-
-# Command-specific help
-symclatron classify --help
-symclatron setup --help
-
-# Show version and information
-symclatron --version
+```sh
+mamba create -n symclatron -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
+mamba run -n symclatron symclatron setup
+mamba run -n symclatron symclatron test
 ```
 
-### Classification command
+`pixi global install` and the conda-based workflow install both CLI names:
 
-The main classification command with all options:
+- `symclatron`
+- `symcla`
 
-```bash
+For example, `symcla classify ...` is equivalent to `symclatron classify ...`.
+
+## First-time setup
+
+Before classification, download the packaged database and model bundle once:
+
+```sh
+symclatron setup
+```
+
+Useful setup options:
+
+- `--force`, `-f`: remove any existing bundled data and download again
+- `--data-url`: override the default GitHub Release URL
+- `--data-sha256`: verify the downloaded archive against a SHA256 digest
+- `--quiet`, `-q`: suppress routine progress messages
+
+By default, `setup` downloads the bundle from the GitHub Release tag `db-latest`.
+
+## Accepted inputs
+
+`--genome-dir` can point either to a directory containing one genome per file, or to a single FASTA file.
+
+### Supported FASTA input types
+
+| Input type | Typical suffixes | What symclatron does |
+| --- | --- | --- |
+| Protein FASTA | `.faa`, `.faa.gz`, `.aa`, `.aa.fasta`, `.pep`, `.pep.fasta`, `.protein.faa` | Uses proteins directly |
+| Nucleotide genes/CDS FASTA | `.ffn`, `.ffn.gz`, `.fnn`, `.fnn.gz` | Translates sequences in frame |
+| Nucleotide contig/assembly FASTA | `.fa`, `.fa.gz`, `.fas`, `.fas.gz`, `.fasta`, `.fasta.gz`, `.fna`, `.fna.gz` | Predicts genes and proteins with `pyrodigal` |
+
+Notes:
+
+- Gzipped FASTA files are supported.
+- If file extensions are ambiguous, use `--input-kind proteins`, `--input-kind genes`, or `--input-kind contigs`.
+- Use `--input-ext` to restrict which files are picked up from a directory.
+- Genome identifiers in the output come from input filenames, so filenames should be unique within a run.
+
+## Quick start
+
+### Classify protein FASTA
+
+```sh
+symclatron classify --genome-dir /path/to/proteins --output-dir results
+```
+
+### Classify contig FASTA and predict proteins automatically
+
+```sh
+symclatron classify --genome-dir /path/to/contigs --output-dir results
+```
+
+### Force contig mode and only include `.fna` files
+
+```sh
+symclatron classify \
+  --genome-dir /path/to/inputs \
+  --input-kind contigs \
+  --input-ext .fna \
+  --output-dir results
+```
+
+### Apply a conservative confidence threshold
+
+```sh
+symclatron classify \
+  --genome-dir /path/to/genomes \
+  --confidence-threshold 0.725 \
+  --output-dir results
+```
+
+## CLI reference
+
+### `symclatron classify`
+
+```sh
 symclatron classify [OPTIONS]
 ```
 
-**Options:**
+Options:
 
-- `--genome-dir, -i`: Directory (or FASTA file) containing genome inputs (.faa/.fa/.fna/.fasta/.ffn/.fnn) [default: input_genomes]
-- `--input-kind`: Force input kind: `auto`, `proteins`, `genes`, `contigs` [default: auto]
-- `--input-ext`: Only include files with these extensions (repeatable), e.g. `--input-ext .fna` (also matches `.fna.gz`)
-- `--output-dir, -o`: Output directory for results [default: output_Symclatron_<DATETIME>]
-- `--keep-tmp`: Keep temporary files for debugging
-- `--threads, -t`: Number of threads for HMMER searches [default: 2]
-- `--confidence-threshold`: Optional confidence threshold for conservative interpretation; when provided, low-confidence predictions are relabeled as `Unknown` in an additional `classification_thresholded` column
-- `--quiet, -q`: Suppress progress messages
-- `--verbose`: Show detailed progress information
+- `--genome-dir`, `-i`: input directory or single FASTA file
+- `--input-kind`: `auto`, `proteins`, `genes`, or `contigs`
+- `--input-ext`: limit directory scanning to specific extensions; repeat the flag or pass comma-separated values
+- `--output-dir`, `-o`: results directory; default is `output_Symclatron_<DATETIME>`
+- `--keep-tmp`: keep intermediate files instead of removing `tmp/`
+- `--threads`, `-t`: number of HMMER threads, from `1` to `32`
+- `--confidence-threshold`: value in `(0, 1]`; adds conservative thresholded labels to the results table
+- `--quiet`, `-q`: suppress routine console progress output
+- `--verbose`: increase log detail
 
-**Examples:**
+Examples:
 
-```bash
-# Basic usage
-symclatron classify --genome-dir genomes/ --output-dir results/
-
-# With more threads and keeping temporary files
-symclatron classify -i genomes/ -o results/ --threads 8 --keep-tmp
-
-# Apply the recommended confidence threshold for conservative interpretation
-symclatron classify --genome-dir genomes/ --confidence-threshold 0.725
-
-# Quiet mode
-symclatron classify --genome-dir genomes/ --quiet
-
-# Verbose mode with detailed progress
-symclatron classify --genome-dir genomes/ --verbose
+```sh
+symclatron classify --genome-dir genomes --output-dir results
+symclatron classify --genome-dir genomes --threads 8 --keep-tmp --output-dir results
+symclatron classify --genome-dir genomes --quiet --output-dir results
+symclatron classify --genome-dir genomes --verbose --output-dir results
 ```
 
-## Results
+### `symclatron test`
 
-The classification results are saved in the specified output directory:
+```sh
+symclatron test [OPTIONS]
+```
 
-### Main output files
+This runs the bundled example data installed by `symclatron setup`.
 
-1. **`symclatron_results.tsv`** - Main classification results with columns:
-   - `taxon_oid` - Genome identifier
-   - `completeness_UNI56` - Completeness metric based on universal marker genes
-   - `confidence` - Overall confidence score for the classification
-   - `classification` - Raw classification label:
-     - `Free-living`
-     - `Symbiont;Host-associated`
-     - `Symbiont;Obligate-intracellular`
-   - `classification_thresholded` - Optional thresholded label when `--confidence-threshold` is used; lower-confidence predictions are reported as `Unknown`
-   - `passes_confidence_threshold` - Optional boolean flag indicating whether the prediction passed the chosen threshold
+Options:
 
-2. **`classification_summary.txt`** - Summary report with statistics
+- `--keep-tmp`: keep intermediate files for the test run
+- `--mode`: `proteins`, `contigs`, or `both` (default)
+- `--output-dir`, `-o`: test output root; default is `output_test_Symclatron_<DATETIME>`
 
-3. **Log files** - Detailed execution logs with timestamps
+When `--mode both` is used, results are written under:
 
-### Debug files
+- `<output-dir>/faa`
+- `<output-dir>/fna`
 
-When using `--keep-tmp`, intermediate files are preserved in `tmp/` directory for analysis.
+### `symclatron setup`
 
-### Confidence guidance
+```sh
+symclatron setup [OPTIONS]
+```
 
-The raw `classification` column always reports the highest-probability class from the model. For conservative interpretation, we recommend using a confidence threshold of `0.725`. When `--confidence-threshold 0.725` is supplied, the results table also includes `classification_thresholded` and `passes_confidence_threshold` columns so that lower-confidence predictions are explicitly separated from higher-confidence calls.
+Options:
 
-## Performance
+- `--force`, `-f`: redownload the data bundle even if it already exists
+- `--quiet`, `-q`: suppress routine setup messages
+- `--data-url`: override the default bundle URL
+- `--data-sha256`: expected SHA256 digest for the bundle
 
-symclatron is designed for efficiency:
+### Help and version
 
-- **>2 minutes per genome** on consumer-level laptops
-- **Most recent benchmark**: 306 genomes in ~162 minutes (1.9 min/genome)
-- **Memory efficient** - suitable for standard workstations
+```sh
+symclatron --help
+symclatron classify --help
+symclatron setup --help
+symclatron test --help
+symclatron --version
+```
+
+## Output files
+
+The main output directory contains the final results plus logs and selected intermediate files.
+
+### Final result table: `symclatron_results.tsv`
+
+Columns:
+
+- `taxon_oid`: genome identifier derived from the input filename
+- `completeness_UNI56`: estimated completeness based on the `UNI56` marker set
+- `classification`: final predicted lifestyle class
+- `confidence`: confidence score for the reported class
+- `passes_confidence_threshold`: optional boolean column added when `--confidence-threshold` is used
+- `classification_thresholded`: optional conservative label added when `--confidence-threshold` is used; predictions below threshold are reported as `Unknown`
+
+Exact class labels written by the current implementation are:
+
+- `Free-living`
+- `Symbiont;Host-associated`
+- `Symbiont;Obligate-intracellular`
+
+### Summary and logs
+
+- `classification_summary.txt`: counts and summary statistics for the run
+- `logs/symclatron.log`: run log
+- `logs/resource_usage_*.log`: resource-monitoring log
+
+### Selected intermediate outputs kept in the main results directory
+
+- `bitscore_symcla.tsv`
+- `bitscore_symreg.tsv`
+- `bitscore_hostcla.tsv`
+- `shap_symreg.tsv`
+- `feature_contribution_symreg.tsv`
+- `shap_melt_symreg.tsv`
+
+### Temporary files
+
+If `--keep-tmp` is used, the `tmp/` directory is kept. It contains renamed FASTA files, merged FASTA files, HMMER tables, model-specific feature tables, and additional intermediate prediction files.
+
+## Interpreting the results
+
+- The `classification` column always reports the highest-probability final class.
+- For conservative interpretation, use `--confidence-threshold 0.725`.
+- When a confidence threshold is supplied, lower-confidence calls are preserved in `classification` but are relabeled as `Unknown` in `classification_thresholded`.
+- `completeness_UNI56` is provided to help judge how complete the genome appears relative to the marker set used by the workflow.
 
 ## Citation
 
-If you use symclatron in your research, please cite:
+If you use `symclatron` in your research, please cite:
 
 A genomic catalog of Earth’s bacterial and archaeal symbionts.
 Juan C. Villada, Yumary M. Vasquez, Gitta Szabo, Ewan Whittaker-Walker, Miguel F. Romero, Sarina Qin, Neha Varghese, Emiley A. Eloe-Fadrosh, Nikos C. Kyrpides, SymGs data consortium, Axel Visel, Tanja Woyke, Frederik Schulz
@@ -183,6 +265,6 @@ bioRxiv 2025.05.29.656868; doi: https://doi.org/10.1101/2025.05.29.656868
 
 ## Support
 
-- **Repository**: [https://github.com/NeLLi-team/symclatron](https://github.com/NeLLi-team/symclatron)
-- **Issues**: [https://github.com/NeLLi-team/symclatron/issues](https://github.com/NeLLi-team/symclatron/issues)
-- **Author**: Juan C. Villada <jvillada@lbl.gov>
+- Repository: <https://github.com/NeLLi-team/symclatron>
+- Issues: <https://github.com/NeLLi-team/symclatron/issues>
+- Author: Juan C. Villada <jvillada@lbl.gov>

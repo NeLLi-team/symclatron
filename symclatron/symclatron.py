@@ -23,21 +23,14 @@ from pathlib import Path
 from typing import Optional, List, Dict, Union, Any, Tuple
 
 # Third-party imports
-import joblib
 import numpy as np
 import pandas as pd
 import psutil
-import pyhmmer
-import shap
 import typer
-import xgboost as xgb
 
 # Force TensorFlow to use CPU only
-import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow info/warning messages
-
-from tensorflow.keras.models import load_model
 
 # Define the script directory as a global variable for consistent path resolution
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -78,6 +71,66 @@ def _log_lines(logger: logging.Logger, message: Union[str, List[str]], level: in
     for line in lines:
         if line.strip():
             logger.log(level, line)
+
+
+def _missing_dependency(message: str, exc: ImportError) -> None:
+    typer.secho(f"Error: {message}", fg=typer.colors.BRIGHT_RED, err=True)
+    raise typer.Exit(1) from exc
+
+
+def _import_pyhmmer():
+    try:
+        import pyhmmer  # type: ignore
+    except ImportError as exc:
+        _missing_dependency(
+            "pyhmmer is required to run HMM searches. Install it with pip, conda, or pixi.",
+            exc,
+        )
+    return pyhmmer
+
+
+def _import_shap():
+    try:
+        import shap  # type: ignore
+    except ImportError as exc:
+        _missing_dependency(
+            "shap is required for feature contribution outputs. Install it with pip, conda, or pixi.",
+            exc,
+        )
+    return shap
+
+
+def _import_xgboost():
+    try:
+        import xgboost as xgb  # type: ignore
+    except ImportError as exc:
+        _missing_dependency(
+            "xgboost is required to run the classifier models. Install it with pip, conda, or pixi.",
+            exc,
+        )
+    return xgb
+
+
+def _import_joblib():
+    try:
+        import joblib  # type: ignore
+    except ImportError as exc:
+        _missing_dependency(
+            "joblib is required to load the neural-network scaler. Install it with pip, conda, or pixi.",
+            exc,
+        )
+    return joblib
+
+
+def _import_keras_load_model():
+    try:
+        from tensorflow.keras.models import load_model
+    except ImportError as exc:
+        _missing_dependency(
+            "tensorflow is required to load the neural-network classifier. Install it with pip, conda, or pixi.",
+            exc,
+        )
+    return load_model
 
 SUPPORTED_NUCLEOTIDE_SUFFIXES = {
     ".fa",
@@ -286,7 +339,6 @@ def _infer_nucleotide_kind(fasta_path: Path) -> str:
         lengths.append(len(seq))
         if len(seq) % 3 == 0:
             in_frame += 1
-        codon_count = max(1, len(seq) // 3)
         stops = 0
         for i in range(0, len(seq) - 2, 3):
             if seq[i:i+3] in stop_codons:
@@ -414,8 +466,9 @@ def version_callback(value: bool):
         typer.echo(f"symclatron version {__version__}")
         raise typer.Exit()
 
-def _build_shap_explainer(model: Any, data: pd.DataFrame) -> shap.Explainer:
+def _build_shap_explainer(model: Any, data: pd.DataFrame) -> Any:
     """Return a SHAP explainer compatible with XGBoost models across versions."""
+    shap = _import_shap()
     try:
         return shap.TreeExplainer(model)
     except Exception:
@@ -750,44 +803,51 @@ def extract_data(
     force: bool = False,
     data_url: Optional[str] = None,
     data_sha256: Optional[str] = None,
+    quiet: bool = False,
 ) -> None:
     """Download and extract the symclatron data archive."""
-    typer.secho("Setting up symclatron data", fg=typer.colors.BRIGHT_GREEN)
+    if not quiet:
+        typer.secho("Setting up symclatron data", fg=typer.colors.BRIGHT_GREEN)
 
     default_urls = [
         "https://github.com/NeLLi-team/symclatron/releases/download/db-latest/symclatron_db.tar.gz",
     ]
     candidate_urls = [data_url] if data_url else default_urls
     data_dir = _abs_path(os.path.join(script_dir, "data"))
-    typer.secho(f"Target data directory: {data_dir}", fg=typer.colors.BRIGHT_BLUE)
+    if not quiet:
+        typer.secho(f"Target data directory: {data_dir}", fg=typer.colors.BRIGHT_BLUE)
 
     # Check if data directory already exists
     if os.path.isdir(data_dir):
         if not force:
+            if not quiet:
+                typer.secho(
+                    f"Data directory already exists. Using existing data at: {data_dir}",
+                    fg=typer.colors.BRIGHT_YELLOW,
+                )
+            return
+        if not quiet:
             typer.secho(
-                f"Data directory already exists. Using existing data at: {data_dir}",
+                f"Removing existing data directory: {data_dir}",
                 fg=typer.colors.BRIGHT_YELLOW,
             )
-            return
-        typer.secho(
-            f"Removing existing data directory: {data_dir}",
-            fg=typer.colors.BRIGHT_YELLOW,
-        )
         shutil.rmtree(data_dir)
 
     # Create a temporary file path
     tmp_download_path = _abs_path(os.path.join(script_dir, "symclatron_db.tar.gz"))
-    typer.secho(
-        f"Temporary download path: {tmp_download_path}",
-        fg=typer.colors.BRIGHT_BLUE,
-    )
+    if not quiet:
+        typer.secho(
+            f"Temporary download path: {tmp_download_path}",
+            fg=typer.colors.BRIGHT_BLUE,
+        )
 
     try:
         used_url: Optional[str] = None
         last_error: Optional[Exception] = None
         for url in candidate_urls:
             try:
-                typer.secho(f"Downloading data from {url}...", fg=typer.colors.BRIGHT_GREEN)
+                if not quiet:
+                    typer.secho(f"Downloading data from {url}...", fg=typer.colors.BRIGHT_GREEN)
                 urllib.request.urlretrieve(url, tmp_download_path)
                 if data_sha256:
                     _verify_sha256(tmp_download_path, data_sha256)
@@ -807,7 +867,8 @@ def extract_data(
             raise RuntimeError(f"All downloads failed. Last error: {last_error}")
 
         # Extract the archive
-        typer.secho("Extracting data...", fg=typer.colors.BRIGHT_GREEN)
+        if not quiet:
+            typer.secho("Extracting data...", fg=typer.colors.BRIGHT_GREEN)
         _safe_extract_tar(tmp_download_path, script_dir)
 
         # Move the data directory to the correct location
@@ -824,8 +885,9 @@ def extract_data(
         if os.path.exists(tmp_download_path):
             os.remove(tmp_download_path)
 
-        typer.secho("[OK] Data setup complete\n", fg=typer.colors.BRIGHT_MAGENTA)
-        typer.secho(f"Data installed at: {data_dir}", fg=typer.colors.BRIGHT_GREEN)
+        if not quiet:
+            typer.secho("[OK] Data setup complete\n", fg=typer.colors.BRIGHT_MAGENTA)
+            typer.secho(f"Data installed at: {data_dir}", fg=typer.colors.BRIGHT_GREEN)
 
     except Exception as e:
         typer.secho(
@@ -839,7 +901,7 @@ def extract_data(
             f"\nPlease download the data manually from one of:\n{urls_text}\n\nand extract it to {data_dir}",
             fg=typer.colors.BRIGHT_YELLOW,
         )
-        exit(1)
+        raise typer.Exit(1)
 
 
 
@@ -1056,6 +1118,7 @@ def run_hmmsearch(ncpus: int, resource_monitor: Optional["ResourceMonitor"] = No
     """
     logger = _get_logger()
     logger.info("Running hmmsearch on merged genomes for the hmm models file")
+    pyhmmer = _import_pyhmmer()
 
     path_to_tblout = (
         Path(tmp_dir_path) / "symclatron_2384_union_features_hmmsearch.tblout"
@@ -1146,6 +1209,7 @@ def run_hmmsearch_uni56(ncpus: int, resource_monitor: Optional["ResourceMonitor"
     sequence_file_path = tmp_dir_path + "/merged_genomes.faa"
 
     logger = _get_logger()
+    pyhmmer = _import_pyhmmer()
     try:
         # Use resource monitoring context manager for the entire UNI56 HMMER search
         if resource_monitor:
@@ -1219,6 +1283,7 @@ def save_list_of_models() -> None:
     """Save a list of models from HMM files using pyhmmer."""
     logger = _get_logger()
     logger.info("Saving list of models for each hmm model file")
+    pyhmmer = _import_pyhmmer()
 
     hmm_files = [
         os.path.join(script_dir, "data/symclatron_2384_union_features.hmm"),
@@ -1231,17 +1296,18 @@ def save_list_of_models() -> None:
         )
 
         try:
-            with open(models_list_file_path, "w") as output_models_list_file:
+            with open(models_list_file_path, "w", encoding="utf-8") as output_models_list_file:
                 # Use pyhmmer to read HMM profiles and extract names
                 with pyhmmer.plan7.HMMFile(hmmfile) as hmm_file:
                     for hmm in hmm_file:
                         # Write the model name (equivalent to "NAME" field)
-                        output_models_list_file.write(hmm.name + "\n")
+                        model_name = hmm.name.decode() if isinstance(hmm.name, bytes) else str(hmm.name)
+                        output_models_list_file.write(model_name + "\n")
         except Exception as e:
             logger.error("Error reading HMM file %s: %s", hmmfile, e)
             # Fallback to the original text parsing method
-            with open(models_list_file_path, "w") as output_models_list_file:
-                with open(hmmfile, "r") as my_hmmfile:
+            with open(models_list_file_path, "w", encoding="utf-8") as output_models_list_file:
+                with open(hmmfile, "r", encoding="utf-8") as my_hmmfile:
                     for line in my_hmmfile:
                         if re.search("NAME", line):
                             output_models_list_file.write(line.replace("NAME  ", ""))
@@ -1282,9 +1348,12 @@ def hmmer_results_to_pandas_df() -> None:
     )
 
     for tbloutfile in list_of_tblout_hmmsearch_output_files:
-        tblout_hmm_result = pd.read_csv(
-            tbloutfile, header=None, sep=r"\s+", comment="#", usecols=[0, 2, 4, 5]
-        )
+        try:
+            raw_hits = pd.read_csv(
+                tbloutfile, header=None, sep=r"\s+", comment="#", usecols=[0, 2, 4, 5]
+            )
+        except pd.errors.EmptyDataError:
+            raw_hits = pd.DataFrame(columns=[0, 2, 4, 5])
 
         # list_of_features_names = []
         models_names = pd.read_csv(
@@ -1297,23 +1366,6 @@ def hmmer_results_to_pandas_df() -> None:
             tmp_dir_path + "/genomes.list", sep="\t", header=None
         )
 
-        # Process hmmsearch output
-        tblout_hmm_result = tblout_hmm_result.rename(
-            columns={0: "taxon_oid", 2: "model", 4: "evalue", 5: "score"}
-        )
-
-        tblout_hmm_result["protein_name"] = tblout_hmm_result["taxon_oid"].str.replace(
-            ".*\\|", "", regex=True
-        )
-        tblout_hmm_result["taxon_oid"] = tblout_hmm_result["taxon_oid"].str.replace(
-            "\\|.*$", "", regex=True
-        )
-
-        # Grouping by COG and keeping only the max score
-        tblout_hmm_result = (
-            tblout_hmm_result.groupby(["taxon_oid", "model"]).max().reset_index()
-        )
-
         df_hits_with_protein_names_loc = tbloutfile.replace(
             "_hmmsearch.tblout", "_hits_with_protein_names.tsv"
         )
@@ -1321,19 +1373,49 @@ def hmmer_results_to_pandas_df() -> None:
         global symclatron_union_hits_with_protein_names_loc
         symclatron_union_hits_with_protein_names_loc = f"{os.path.dirname(tbloutfile)}/symclatron_2384_union_features_hits_with_protein_names.tsv"
 
-        tblout_hmm_result.to_csv(
-            df_hits_with_protein_names_loc,
-            index=False,
-            sep="\t",
-        )
+        if raw_hits.empty:
+            hits_with_protein_names = pd.DataFrame(
+                columns=["taxon_oid", "model", "evalue", "score", "protein_name"]
+            )
+            wide_hits = pd.DataFrame(columns=["taxon_oid"])
+        else:
+            # Process hmmsearch output
+            hits_with_protein_names = raw_hits.rename(
+                columns={0: "taxon_oid", 2: "model", 4: "evalue", 5: "score"}
+            )
 
-        tblout_hmm_result = tblout_hmm_result[["taxon_oid", "model", "score"]]
-        tblout_hmm_result = tblout_hmm_result.sort_values(
-            by=["taxon_oid", "model", "score"])
-        tblout_hmm_result = tblout_hmm_result.drop_duplicates()
-        tblout_hmm_result = tblout_hmm_result.pivot_table(
-            index="taxon_oid", columns="model", values="score", fill_value=0
-        )
+            hits_with_protein_names["protein_name"] = hits_with_protein_names["taxon_oid"].str.replace(
+                ".*\\|", "", regex=True
+            )
+            hits_with_protein_names["taxon_oid"] = hits_with_protein_names["taxon_oid"].str.replace(
+                "\\|.*$", "", regex=True
+            )
+
+            # Group by genome and model, keeping the highest-scoring hit.
+            wide_hits = (
+                hits_with_protein_names.groupby(["taxon_oid", "model"]).max().reset_index()
+            )
+
+            hits_with_protein_names.to_csv(
+                df_hits_with_protein_names_loc,
+                index=False,
+                sep="\t",
+            )
+
+            wide_hits = wide_hits[["taxon_oid", "model", "score"]]
+            wide_hits = wide_hits.sort_values(by=["taxon_oid", "model", "score"])
+            wide_hits = wide_hits.drop_duplicates()
+            wide_hits = wide_hits.pivot_table(
+                index="taxon_oid", columns="model", values="score", fill_value=0
+            )
+            wide_hits = wide_hits.reset_index()
+
+        if raw_hits.empty:
+            hits_with_protein_names.to_csv(
+                df_hits_with_protein_names_loc,
+                index=False,
+                sep="\t",
+            )
 
         # Processing all taxa names
         genomes_names = genomes_names.rename(columns={0: "taxon_oid"})
@@ -1341,7 +1423,7 @@ def hmmer_results_to_pandas_df() -> None:
 
         # Merge dataframes based on taxa names
         tblout_hmm_result = pd.merge(
-            left=genomes_names, right=tblout_hmm_result, on="taxon_oid", how="left"
+            left=genomes_names, right=wide_hits, on="taxon_oid", how="left"
         )
 
         # Fill missing values for which hmmsearch did not find any result even with the large E-value thresholds
@@ -1427,6 +1509,7 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
         resource_monitor (ResourceMonitor, optional): Resource monitor object. Defaults to None.
     """
     logger = _get_logger()
+    xgb = _import_xgboost()
     for each_model in ["symcla", "symreg", "hostcla"]:
         start_time = time.time()
         logger.info("Classifying genomes using the %s model", each_model)
@@ -1543,11 +1626,10 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
 
     # Only calculate for symreg model
     each_model = "symreg"
+    xgb = _import_xgboost()
 
     # Load the model
     reg_model_file = os.path.join(script_dir, f"data/ml_models/{each_model}.json")
-    with open(reg_model_file, "r") as json_file:
-        model_dict = json.load(json_file)
 
     # Load the test data
     df_test = pd.read_csv(f"{tmp_dir_path}/{each_model}_hits_all_models.tsv", sep="\t")
@@ -1729,6 +1811,8 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
     try:
         nn_model_path = os.path.join(script_dir, "data/ml_models/NN_model_big.keras")
         nn_scaler_path = os.path.join(script_dir, "data/ml_models/NN_scaler_big.pkl")
+        load_model = _import_keras_load_model()
+        joblib = _import_joblib()
         loaded_model = load_model(nn_model_path)
         loaded_scaler = joblib.load(nn_scaler_path)
     except (OSError, IOError) as e:
@@ -1744,17 +1828,59 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
     distance_reg = pd.read_csv(f"{tmp_dir_path}/min_distances_reg.tsv", sep="\t")
     distance_cla = pd.read_csv(f"{tmp_dir_path}/min_distances_cla.tsv", sep="\t")
 
-    # Prepare the input data for the neural network
-    input_data = pd.DataFrame({
-        'taxon_oid': reg_predictions['taxon_oid'],
-        'prediction_REG': reg_predictions['symreg_score'],
-        'prediction_CLA_proba_0': cla_predictions['proba_fl'],
-        'prediction_CLA_proba_1': cla_predictions['proba_ha'],
-        'prediction_CLA_proba_2': cla_predictions['proba_in'],
-        'completeness': uni56_presence['completeness_UNI56'],
-        'min_distance_weighted_REG': distance_reg[f'min_distance_weighted_REG'],
-        'min_distance_weighted_CLA': distance_cla[f'min_distance_weighted_CLA']
-    })
+    # Join intermediate outputs by genome id to avoid accidental row-order mismatches.
+    input_data = reg_predictions[["taxon_oid", "symreg_score"]].rename(
+        columns={"symreg_score": "prediction_REG"}
+    )
+    input_data = input_data.merge(
+        cla_predictions[["taxon_oid", "proba_fl", "proba_ha", "proba_in"]].rename(
+            columns={
+                "proba_fl": "prediction_CLA_proba_0",
+                "proba_ha": "prediction_CLA_proba_1",
+                "proba_in": "prediction_CLA_proba_2",
+            }
+        ),
+        on="taxon_oid",
+        how="left",
+        validate="one_to_one",
+    )
+    input_data = input_data.merge(
+        uni56_presence[["taxon_oid", "completeness_UNI56"]].rename(
+            columns={"completeness_UNI56": "completeness"}
+        ),
+        on="taxon_oid",
+        how="left",
+        validate="one_to_one",
+    )
+    input_data = input_data.merge(
+        distance_reg[["taxon_oid", "min_distance_weighted_REG"]],
+        on="taxon_oid",
+        how="left",
+        validate="one_to_one",
+    )
+    input_data = input_data.merge(
+        distance_cla[["taxon_oid", "min_distance_weighted_CLA"]],
+        on="taxon_oid",
+        how="left",
+        validate="one_to_one",
+    )
+
+    required_columns = [
+        "prediction_REG",
+        "prediction_CLA_proba_0",
+        "prediction_CLA_proba_1",
+        "prediction_CLA_proba_2",
+        "completeness",
+        "min_distance_weighted_REG",
+        "min_distance_weighted_CLA",
+    ]
+    missing_mask = input_data[required_columns].isna().any(axis=1)
+    if missing_mask.any():
+        missing_ids = ", ".join(input_data.loc[missing_mask, "taxon_oid"].astype(str).tolist())
+        raise RuntimeError(
+            "Missing intermediate prediction data for genome(s): "
+            f"{missing_ids}"
+        )
 
     # Make predictions using the neural network
     nn_results = predict_new_data(input_data, model=loaded_model, scaler=loaded_scaler)
@@ -1769,7 +1895,7 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
     # Create a simplified output dataframe
     output_df = pd.DataFrame({
         'taxon_oid': nn_results['taxon_oid'],
-        'completeness_UNI56': uni56_presence['completeness_UNI56'].round(2),
+        'completeness_UNI56': input_data['completeness'].round(2),
         # 'prob_Free_living': [prob[0] for prob in nn_results['probabilities']],
         # 'prob_Symbiont_Host_associated': [prob[1] for prob in nn_results['probabilities']],
         # 'prob_Symbiont_Obligate_intracellular': [prob[2] for prob in nn_results['probabilities']],
@@ -1879,7 +2005,7 @@ def predict_new_data(new_data: pd.DataFrame, model: Any = None, scaler: Any = No
     return result_df
 
 
-def setup_logging(log_dir: Optional[str] = None, verbose: bool = False) -> logging.Logger:
+def setup_logging(log_dir: Optional[str] = None, verbose: bool = False, quiet: bool = False) -> logging.Logger:
     """
     Configure logging for the application.
 
@@ -1901,17 +2027,20 @@ def setup_logging(log_dir: Optional[str] = None, verbose: bool = False) -> loggi
 
     logger = logging.getLogger("symclatron")
     logger.setLevel(numeric_level)
+    for handler in logger.handlers:
+        handler.close()
     logger.handlers.clear()
-
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-    stream_handler.setLevel(numeric_level)
+    logger.propagate = False
 
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
 
-    logger.addHandler(stream_handler)
+    if not quiet:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        stream_handler.setLevel(numeric_level)
+        logger.addHandler(stream_handler)
     logger.addHandler(file_handler)
     logger.debug("Logging initialised at level %s", logging.getLevelName(numeric_level))
     return logger
@@ -2262,13 +2391,13 @@ def classify(
         os.makedirs(savedir)
 
     log_dir = Path(savedir) / "logs"
-    logger = setup_logging(str(log_dir), verbose=verbose)
+    logger = setup_logging(str(log_dir), verbose=verbose, quiet=quiet)
 
     # Initialize resource monitoring using the same log directory
     resource_monitor = ResourceMonitor(str(log_dir))
 
     if show_header:
-        print_header(logger)
+        print_header(None if quiet else logger)
     if run_label:
         logger.info(run_label)
     # Rest of the function remains unchanged
@@ -2465,7 +2594,7 @@ def setup_data(
             )
         return
 
-    extract_data(force=force, data_url=data_url, data_sha256=data_sha256)
+    extract_data(force=force, data_url=data_url, data_sha256=data_sha256, quiet=quiet)
 
     if not quiet:
         typer.secho("Setup completed successfully.", fg=typer.colors.GREEN, bold=True)
