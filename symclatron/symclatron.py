@@ -46,8 +46,9 @@ Lawrence Berkeley National Laboratory (LBNL)
 """
 
 __version__ = "0.10.0"
-RECOMMENDED_CONFIDENCE_THRESHOLD = 0.725
-confidence_threshold: Optional[float] = None
+DEFAULT_CONFIDENCE_THRESHOLD = 0.725
+confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
+extra_results_dir: Optional[str] = None
 
 def _abs_path(path: Union[str, Path]) -> str:
     """Return an absolute path without requiring it to exist."""
@@ -57,6 +58,20 @@ def _abs_path(path: Union[str, Path]) -> str:
 def _format_threshold_value(value: float) -> str:
     """Format a threshold value without losing user-relevant precision."""
     return repr(float(value))
+
+
+def _resolve_confidence_threshold(value: Optional[float]) -> float:
+    """Return the applied confidence threshold, falling back to the default."""
+    if value is None:
+        return DEFAULT_CONFIDENCE_THRESHOLD
+    return float(value)
+
+
+def _get_extra_results_path(filename: str) -> str:
+    """Return the path for an auxiliary result file."""
+    if extra_results_dir is None:
+        raise RuntimeError("extra_results_dir has not been initialised")
+    return os.path.join(extra_results_dir, filename)
 
 
 def _get_logger() -> logging.Logger:
@@ -1519,7 +1534,9 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
             sep="\t"
         )
         all_tblout_df.to_csv(
-            f"{savedir}/bitscore_{each_model}.tsv", sep="\t", index=False
+            _get_extra_results_path(f"bitscore_{each_model}.tsv"),
+            sep="\t",
+            index=False,
         )
 
         features_gt0 = all_tblout_df.drop(["taxon_oid"], axis=1).apply(
@@ -1583,7 +1600,11 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
             shap_df = shap_df[
                 ["taxon_oid"] + [col for col in shap_df.columns if col != "taxon_oid"]
             ]
-            shap_df.to_csv(f"{savedir}/shap_{each_model}.tsv", sep="\t", index=False)
+            shap_df.to_csv(
+                _get_extra_results_path(f"shap_{each_model}.tsv"),
+                sep="\t",
+                index=False,
+            )
 
         elif each_model == "symcla":
             class_labels = ["proba_fl", "proba_ha", "proba_in"]
@@ -1658,7 +1679,9 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
 
     # Save to file
     feature_contribution.to_csv(
-        savedir + f"/feature_contribution_{each_model}.tsv", sep="\t", index=False
+        _get_extra_results_path(f"feature_contribution_{each_model}.tsv"),
+        sep="\t",
+        index=False,
     )
 
     # Create melted shap values for visualization and further analysis
@@ -1673,7 +1696,9 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
         shap_melt = pd.concat([shap_melt, temp_df])
 
     shap_melt.to_csv(
-        savedir + f"/shap_melt_{each_model}.tsv", sep="\t", index=False
+        _get_extra_results_path(f"shap_melt_{each_model}.tsv"),
+        sep="\t",
+        index=False,
     )
 
     end_time = time.time()
@@ -1903,13 +1928,12 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
         'confidence': nn_results['confidence'],
     })
 
-    if confidence_threshold is not None:
-        output_df["passes_confidence_threshold"] = output_df["confidence"] >= confidence_threshold
-        output_df["classification_thresholded"] = np.where(
-            output_df["passes_confidence_threshold"],
-            output_df["classification"],
-            "Unknown",
-        )
+    output_df["passes_confidence_threshold"] = output_df["confidence"] >= confidence_threshold
+    output_df["classification_thresholded"] = np.where(
+        output_df["passes_confidence_threshold"],
+        output_df["classification"],
+        "Unknown",
+    )
 
     # Rename the genome names back to the original names
     genome_dict_path = f"{tmp_dir_path}/genomes_dict.json"
@@ -1919,8 +1943,10 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
     output_df['taxon_oid'] = output_df['taxon_oid'].replace(genome_dict)
 
     # Save the final simplified output
+    final_results_path = f"{savedir}/symclatron_results.tsv"
+    logger.info("Final classification table saved to: %s", final_results_path)
     _log_lines(logger, output_df.to_string(index=False), logging.INFO)
-    output_df.to_csv(f"{savedir}/symclatron_results.tsv", sep="\t", index=False)
+    output_df.to_csv(final_results_path, sep="\t", index=False)
 
     end_time = time.time()
     duration = end_time - start_time
@@ -2271,14 +2297,15 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
                 logger.info("  - Max: N/A")
 
             logger.info(
-                "Recommended confidence threshold for conservative interpretation: %s",
-                _format_threshold_value(RECOMMENDED_CONFIDENCE_THRESHOLD),
+                "Default confidence threshold for conservative interpretation: %s",
+                _format_threshold_value(DEFAULT_CONFIDENCE_THRESHOLD),
             )
-            if thresholded_counts is not None and confidence_threshold is not None:
-                logger.info(
-                    "Thresholded classification counts (confidence >= %s):",
-                    _format_threshold_value(confidence_threshold),
-                )
+            logger.info(
+                "Applied confidence threshold: %s",
+                _format_threshold_value(confidence_threshold),
+            )
+            if thresholded_counts is not None:
+                logger.info("Thresholded classification counts:")
                 for category, count in thresholded_counts.items():
                     percentage = (count / len(results_df)) * 100
                     logger.info(f"  - {category}: {count} ({percentage:.1f}%)")
@@ -2322,19 +2349,18 @@ def generate_classification_summary(output_dir: str, logger: logging.Logger) -> 
 
                 f.write("\nConfidence threshold guidance\n\n")
                 f.write(
-                    f"Recommended confidence threshold for conservative interpretation: "
-                    f"{_format_threshold_value(RECOMMENDED_CONFIDENCE_THRESHOLD)}\n"
+                    f"Default confidence threshold for conservative interpretation: "
+                    f"{_format_threshold_value(DEFAULT_CONFIDENCE_THRESHOLD)}\n"
                 )
-                if confidence_threshold is not None:
-                    f.write(
-                        f"User-applied confidence threshold: "
-                        f"{_format_threshold_value(confidence_threshold)}\n"
-                    )
-                    if thresholded_counts is not None:
-                        f.write("\nThresholded classification counts\n\n")
-                        for category, count in thresholded_counts.items():
-                            percentage = (count / len(results_df)) * 100
-                            f.write(f"{category}: {count} ({percentage:.1f}%)\n")
+                f.write(
+                    f"Applied confidence threshold: "
+                    f"{_format_threshold_value(confidence_threshold)}\n"
+                )
+                if thresholded_counts is not None:
+                    f.write("\nThresholded classification counts\n\n")
+                    for category, count in thresholded_counts.items():
+                        percentage = (count / len(results_df)) * 100
+                        f.write(f"{category}: {count} ({percentage:.1f}%)\n")
 
             logger.info("Summary saved to: %s", summary_file)
 
@@ -2390,6 +2416,10 @@ def classify(
     if not os.path.exists(savedir):
         os.makedirs(savedir)
 
+    global extra_results_dir
+    extra_results_dir = f"{savedir}/extra_results"
+    os.makedirs(extra_results_dir, exist_ok=True)
+
     log_dir = Path(savedir) / "logs"
     logger = setup_logging(str(log_dir), verbose=verbose, quiet=quiet)
 
@@ -2403,17 +2433,18 @@ def classify(
     # Rest of the function remains unchanged
     logger.info("Starting symclatron classifier (version %s).", __version__)
     logger.info("Output directory: %s", savedir)
+    logger.info("Auxiliary result tables directory: %s", extra_results_dir)
     logger.info("Threads: %s", ncpus)
     logger.info("Input kind: %s", input_kind)
+    applied_confidence_threshold = _resolve_confidence_threshold(confidence_threshold_value)
     logger.info(
-        "Recommended confidence threshold for conservative interpretation: %s",
-        _format_threshold_value(RECOMMENDED_CONFIDENCE_THRESHOLD),
+        "Default confidence threshold for conservative interpretation: %s",
+        _format_threshold_value(DEFAULT_CONFIDENCE_THRESHOLD),
     )
-    if confidence_threshold_value is not None:
-        logger.info(
-            "User-applied confidence threshold: %s (low-confidence predictions relabeled as Unknown in classification_thresholded)",
-            _format_threshold_value(confidence_threshold_value),
-        )
+    logger.info(
+        "Applied confidence threshold: %s (predictions below threshold are relabeled as Unknown in classification_thresholded)",
+        _format_threshold_value(applied_confidence_threshold),
+    )
 
     script_path = Path(os.path.abspath(__file__))
     script_dir = script_path.parent
@@ -2428,7 +2459,7 @@ def classify(
     global genomedir
     genomedir = genome_dir
     global confidence_threshold
-    confidence_threshold = confidence_threshold_value
+    confidence_threshold = applied_confidence_threshold
     logger.info(f"Using input path: {genomedir}")
 
     # Validate input data before processing
@@ -2480,11 +2511,11 @@ def classify(
 
     # Only keep the simplified output and remove hostcla-related files
     logger.info("Cleaning up output files")
-    if os.path.exists(f"{savedir}/feature_contribution_hostcla.tsv"):
-        os.remove(f"{savedir}/feature_contribution_hostcla.tsv")
+    if os.path.exists(_get_extra_results_path("feature_contribution_hostcla.tsv")):
+        os.remove(_get_extra_results_path("feature_contribution_hostcla.tsv"))
 
-    if os.path.exists(f"{savedir}/shap_melt_hostcla.tsv"):
-        os.remove(f"{savedir}/shap_melt_hostcla.tsv")
+    if os.path.exists(_get_extra_results_path("shap_melt_hostcla.tsv")):
+        os.remove(_get_extra_results_path("shap_melt_hostcla.tsv"))
 
     if deltmp:
         logger.info("Removing temporary files")
@@ -2638,14 +2669,15 @@ def classify_genomes(
         max=32,
         help="Number of threads for HMMER searches"
     ),
-    confidence_threshold: Optional[float] = typer.Option(
-        None,
+    confidence_threshold: float = typer.Option(
+        DEFAULT_CONFIDENCE_THRESHOLD,
         "--confidence-threshold",
         min=0.0,
         max=1.0,
         help=(
-            "Optional confidence threshold for conservative interpretation. "
-            "If provided, low-confidence predictions are relabeled as Unknown in "
+            f"Confidence threshold for conservative interpretation. Defaults to "
+            f"{_format_threshold_value(DEFAULT_CONFIDENCE_THRESHOLD)}. "
+            "Predictions below threshold are relabeled as Unknown in "
             "the classification_thresholded column."
         ),
     ),
@@ -2683,7 +2715,7 @@ def classify_genomes(
         typer.secho(f"Error: Input path '{genome_dir}' does not exist", fg=typer.colors.RED)
         raise typer.Exit(1)
 
-    if confidence_threshold is not None and confidence_threshold <= 0:
+    if confidence_threshold <= 0:
         typer.secho("Error: --confidence-threshold must be > 0 and <= 1", fg=typer.colors.RED)
         raise typer.Exit(1)
 
@@ -2738,6 +2770,18 @@ def run_test(
             "Output directory for test results (FAA/FNA subfolders will be created). "
             "Defaults to output_test_Symclatron_<DATETIME>."
         )
+    ),
+    confidence_threshold: float = typer.Option(
+        DEFAULT_CONFIDENCE_THRESHOLD,
+        "--confidence-threshold",
+        min=0.0,
+        max=1.0,
+        help=(
+            f"Confidence threshold for conservative interpretation. Defaults to "
+            f"{_format_threshold_value(DEFAULT_CONFIDENCE_THRESHOLD)}. "
+            "Predictions below threshold are relabeled as Unknown in "
+            "the classification_thresholded column."
+        ),
     )
 ):
     """
@@ -2760,6 +2804,10 @@ def run_test(
     normalized_mode = (mode or "").strip().lower()
     if normalized_mode not in {"proteins", "contigs", "both"}:
         typer.secho("Error: --mode must be one of: proteins, contigs, both", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    if confidence_threshold <= 0:
+        typer.secho("Error: --confidence-threshold must be > 0 and <= 1", fg=typer.colors.RED)
         raise typer.Exit(1)
 
     if normalized_mode in {"proteins", "both"}:
@@ -2791,6 +2839,7 @@ def run_test(
                 f"Running test 1/2 (protein FASTA; {len(protein_files)} files): "
                 f"{_abs_path(protein_input_dir)}"
             ),
+            confidence_threshold_value=confidence_threshold,
             show_header=True,
         )
 
@@ -2817,6 +2866,7 @@ def run_test(
                 "Running test 2/2 (contig FASTA -> protein prediction; "
                 f"{len(contig_files)} files): {test_contigs_dir}"
             ),
+            confidence_threshold_value=confidence_threshold,
             show_header=True,
         )
 

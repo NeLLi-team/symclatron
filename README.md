@@ -128,12 +128,12 @@ symclatron classify \
   --output-dir results
 ```
 
-### Apply a conservative confidence threshold
+### Override the default confidence threshold
 
 ```sh
 symclatron classify \
   --genome-dir /path/to/genomes \
-  --confidence-threshold 0.725 \
+  --confidence-threshold 0.80 \
   --output-dir results
 ```
 
@@ -153,7 +153,7 @@ Options:
 - `--output-dir`, `-o`: results directory; default is `output_Symclatron_<DATETIME>`
 - `--keep-tmp`: keep intermediate files instead of removing `tmp/`
 - `--threads`, `-t`: number of HMMER threads, from `1` to `32`
-- `--confidence-threshold`: value in `(0, 1]`; adds conservative thresholded labels to the results table
+- `--confidence-threshold`: threshold for conservative interpretation; defaults to `0.725` and can be overridden
 - `--quiet`, `-q`: suppress routine console progress output
 - `--verbose`: increase log detail
 
@@ -179,6 +179,7 @@ Options:
 - `--keep-tmp`: keep intermediate files for the test run
 - `--mode`: `proteins`, `contigs`, or `both` (default)
 - `--output-dir`, `-o`: test output root; default is `output_test_Symclatron_<DATETIME>`
+- `--confidence-threshold`: threshold for conservative interpretation; defaults to `0.725` and can be overridden
 
 When `--mode both` is used, results are written under:
 
@@ -210,7 +211,12 @@ symclatron --version
 
 ## Output files
 
-The main output directory contains the final results plus logs and selected intermediate files.
+The main output directory is intentionally kept simple for end users. At the top level you should expect:
+
+- `symclatron_results.tsv`
+- `classification_summary.txt`
+- `logs/`
+- `extra_results/`
 
 ### Final result table: `symclatron_results.tsv`
 
@@ -220,8 +226,8 @@ Columns:
 - `completeness_UNI56`: estimated completeness based on the `UNI56` marker set
 - `classification`: final predicted lifestyle class
 - `confidence`: confidence score for the reported class
-- `passes_confidence_threshold`: optional boolean column added when `--confidence-threshold` is used
-- `classification_thresholded`: optional conservative label added when `--confidence-threshold` is used; predictions below threshold are reported as `Unknown`
+- `passes_confidence_threshold`: boolean column showing whether `confidence >= applied_threshold`
+- `classification_thresholded`: conservative label using the applied threshold; predictions below threshold are reported as `Unknown`
 
 Exact class labels written by the current implementation are:
 
@@ -235,14 +241,14 @@ Exact class labels written by the current implementation are:
 - `logs/symclatron.log`: run log
 - `logs/resource_usage_*.log`: resource-monitoring log
 
-### Selected intermediate outputs kept in the main results directory
+### Auxiliary TSV outputs in `extra_results/`
 
-- `bitscore_symcla.tsv`
-- `bitscore_symreg.tsv`
-- `bitscore_hostcla.tsv`
-- `shap_symreg.tsv`
-- `feature_contribution_symreg.tsv`
-- `shap_melt_symreg.tsv`
+- `extra_results/bitscore_symcla.tsv`
+- `extra_results/bitscore_symreg.tsv`
+- `extra_results/bitscore_hostcla.tsv`
+- `extra_results/shap_symreg.tsv`
+- `extra_results/feature_contribution_symreg.tsv`
+- `extra_results/shap_melt_symreg.tsv`
 
 ### Temporary files
 
@@ -251,8 +257,9 @@ If `--keep-tmp` is used, the `tmp/` directory is kept. It contains renamed FASTA
 ## Interpreting the results
 
 - The `classification` column always reports the highest-probability final class.
-- For conservative interpretation, use `--confidence-threshold 0.725`.
-- When a confidence threshold is supplied, lower-confidence calls are preserved in `classification` but are relabeled as `Unknown` in `classification_thresholded`.
+- The default conservative threshold is `0.725` for every run.
+- Use `--confidence-threshold <value>` only when you want to override that default.
+- Lower-confidence calls are preserved in `classification` but are relabeled as `Unknown` in `classification_thresholded`.
 - `completeness_UNI56` is provided to help judge how complete the genome appears relative to the marker set used by the workflow.
 
 ## Citation
