@@ -30,7 +30,7 @@ The final reported class is produced by the neural-network stage. The `hostcla` 
 
 ## Installation
 
-The project metadata currently targets Python `3.12` on POSIX/Linux systems. The recommended install path is `pixi`; `mamba`/`conda` also works.
+The project metadata currently targets Python `3.12` on Linux and Apple Silicon macOS (`osx-arm64`, including M1-M5). The recommended install path is `pixi`; `mamba`/`conda` also works.
 
 ### Option 1: `pixi` (recommended)
 
@@ -43,8 +43,16 @@ curl -fsSL https://pixi.sh/install.sh | sh
 Then install `symclatron` and download the data bundle:
 
 ```sh
-pixi global install -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
+pixi global install --pinning-strategy no-pin -c conda-forge -c bioconda -c https://repo.prefix.dev/astrogenomics symclatron
 symclatron setup
+```
+
+If `symclatron` was already installed with default pinning, reset it once so future upgrades
+do not get stuck on an older `0.x` minor line:
+
+```sh
+pixi global add --environment symclatron --pinning-strategy no-pin symclatron
+pixi global update symclatron
 ```
 
 Run the bundled self-test:

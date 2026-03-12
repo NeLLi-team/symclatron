@@ -814,6 +814,13 @@ def init_message_classify() -> None:
     return typer.echo(message)
 
 
+def init_message_test() -> None:
+    """Print a self-test message to the console."""
+    message = "Self-test workflow"
+    message = typer.style(text=message, fg=typer.colors.BRIGHT_GREEN, bold=False)
+    return typer.echo(message)
+
+
 def extract_data(
     force: bool = False,
     data_url: Optional[str] = None,
@@ -935,7 +942,7 @@ def create_output_dir(logger: logging.Logger) -> None:
             fg=typer.colors.BRIGHT_RED,
             err=True,
         )
-        exit(1)
+        raise typer.Exit(1)
     else:
         os.mkdir(savedir)
         logger.info(f"Output directory created at: {savedir}")
@@ -975,7 +982,7 @@ def create_tmp_dir(logger: logging.Logger, overwrite: bool = False) -> None:
                 "Remove the directory or rerun without --keep-tmp.",
                 fg=typer.colors.YELLOW,
             )
-            exit(1)
+            raise typer.Exit(1)
     os.mkdir(tmp_dir_path)
     logger.debug("Temporary directory created successfully")
 
@@ -1830,7 +1837,7 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
 
     except Exception:
         logger.error("Required libraries not installed. Please install tensorflow and joblib.")
-        exit(1)
+        raise typer.Exit(1)
 
     # Load the model and scaler using absolute paths based on script location
     try:
@@ -1842,7 +1849,7 @@ def apply_neural_network(resource_monitor: Optional["ResourceMonitor"] = None) -
         loaded_scaler = joblib.load(nn_scaler_path)
     except (OSError, IOError) as e:
         logger.error("Error loading neural network model or scaler: %s", e)
-        exit(1)
+        raise typer.Exit(1)
 
     # Load the required data files
     reg_predictions = pd.read_csv(f"{tmp_dir_path}/symreg_predictions.tsv", sep="\t")
@@ -2105,7 +2112,7 @@ def validate_input(
             fg=typer.colors.BRIGHT_RED,
             err=True,
         )
-        exit(1)
+        raise typer.Exit(1)
 
     input_files = _list_input_fasta_files(genome_dir, input_ext)
     if not input_files:
@@ -2128,7 +2135,7 @@ def validate_input(
                 fg=typer.colors.YELLOW,
                 err=True,
             )
-        exit(1)
+        raise typer.Exit(1)
 
     # Validate each input file to ensure it's a valid FASTA file
     invalid_files = []
@@ -2185,7 +2192,7 @@ def validate_input(
             fg=typer.colors.BRIGHT_RED,
             err=True,
         )
-        exit(1)
+        raise typer.Exit(1)
 
     if kind_mismatch_files:
         expected = normalized_kind
@@ -2195,7 +2202,7 @@ def validate_input(
             fg=typer.colors.BRIGHT_RED,
             err=True,
         )
-        exit(1)
+        raise typer.Exit(1)
 
     if empty_files:
         logger.error(f"Found {len(empty_files)} empty files: {', '.join(empty_files)}")
@@ -2204,7 +2211,7 @@ def validate_input(
             fg=typer.colors.BRIGHT_RED,
             err=True,
         )
-        exit(1)
+        raise typer.Exit(1)
 
     if invalid_files:
         logger.error(f"Found {len(invalid_files)} invalid FASTA files: {', '.join(invalid_files)}")
@@ -2213,7 +2220,7 @@ def validate_input(
             fg=typer.colors.BRIGHT_RED,
             err=True,
         )
-        exit(1)
+        raise typer.Exit(1)
 
     logger.info(f"All {len(input_files)} genome files are valid")
     return True
@@ -2428,6 +2435,8 @@ def classify(
 
     if show_header:
         print_header(None if quiet else logger)
+        if not quiet:
+            init_message_classify()
     if run_label:
         logger.info(run_label)
     # Rest of the function remains unchanged
@@ -2797,6 +2806,12 @@ def run_test(
     test_proteins_dir = _abs_path(os.path.join(test_genomes_root, "faa"))
     test_contigs_dir = _abs_path(os.path.join(test_genomes_root, "fna"))
 
+    print_header()
+    init_message_test()
+    typer.secho(f"Test mode: {mode}", fg=typer.colors.BRIGHT_BLUE)
+    typer.secho(f"Output directory: {output_dir}", fg=typer.colors.BRIGHT_BLUE)
+    typer.secho(f"Test genomes root: {test_genomes_root}", fg=typer.colors.BRIGHT_BLUE)
+
     if not os.path.isdir(test_genomes_root):
         typer.secho("Error: Test genomes not found. Run 'symclatron setup' first.", fg=typer.colors.RED)
         raise typer.Exit(1)
@@ -2831,7 +2846,7 @@ def run_test(
             save_dir=protein_out,
             deltmp=not keep_tmp,
             ncpus=2,
-            quiet=True,  # Suppress redundant headers since we already printed them
+            quiet=False,
             verbose=False,
             input_kind="proteins",
             input_ext=[".faa"],
@@ -2840,8 +2855,9 @@ def run_test(
                 f"{_abs_path(protein_input_dir)}"
             ),
             confidence_threshold_value=confidence_threshold,
-            show_header=True,
+            show_header=False,
         )
+        typer.secho("[OK] Protein FASTA self-test completed", fg=typer.colors.GREEN)
 
     if normalized_mode in {"contigs", "both"}:
         if not os.path.isdir(test_contigs_dir):
@@ -2858,7 +2874,7 @@ def run_test(
             save_dir=contig_out,
             deltmp=not keep_tmp,
             ncpus=2,
-            quiet=True,
+            quiet=False,
             verbose=False,
             input_kind="contigs",
             input_ext=[".fna"],
@@ -2867,8 +2883,15 @@ def run_test(
                 f"{len(contig_files)} files): {test_contigs_dir}"
             ),
             confidence_threshold_value=confidence_threshold,
-            show_header=True,
+            show_header=False,
         )
+        typer.secho("[OK] Contig FASTA self-test completed", fg=typer.colors.GREEN)
+
+    typer.secho(
+        f"Self-test completed successfully. Results saved under: {output_dir}",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
 
 
 

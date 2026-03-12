@@ -17,6 +17,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Programming Language :: Python :: 3.12",
+    "Operating System :: MacOS :: MacOS X",
     "Operating System :: POSIX :: Linux",
 ]
 dependencies = [
