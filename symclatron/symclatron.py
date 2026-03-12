@@ -45,7 +45,7 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.10.0"
+__version__ = "0.10.1"
 DEFAULT_CONFIDENCE_THRESHOLD = 0.725
 confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
 extra_results_dir: Optional[str] = None
