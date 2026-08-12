@@ -27,7 +27,7 @@ __email__ = "jvillada@lbl.gov"
 __title__ = "symclatron"
 __description__ = "Machine Learning-based classification of microbial symbiotic lifestyles"
 __url__ = "https://github.com/NeLLi-team/symclatron"
-__license__ = "MIT"
+__license__ = "NON-COMMERCIAL USE ONLY"
 
 # Import main components for easy access
 from .symclatron import (
