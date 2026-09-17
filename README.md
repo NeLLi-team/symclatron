@@ -257,6 +257,11 @@ Exact class labels written by the current implementation are:
 - `extra_results/shap_symreg.tsv`
 - `extra_results/feature_contribution_symreg.tsv`
 - `extra_results/shap_melt_symreg.tsv`
+- `extra_results/uni56_presence.tsv`: one row per genome, with a `1` (detected) or `0` (not detected) for each UNI56 marker, `total_UNI56`, `completeness_UNI56`, and a semicolon-separated `missing_markers` list
+- `extra_results/uni56_copy_number.tsv`: one row per genome, with the number of distinct detected protein records for each UNI56 marker; undetected markers have a count of `0`, and repeated domains within the same protein count only once
+- `extra_results/uni56_hits.tsv`: UNI56 hits with genome identifiers (`taxon_oid`), marker names (`model`), protein identifiers (`protein_name`), E-values (`evalue`), and bit scores (`score`); repeated domains for the same protein and marker are collapsed to one row
+
+The UNI56 reports use the same genome identifiers as `symclatron_results.tsv`. Protein identifiers are restored from the input protein FASTA headers; for nucleotide inputs, they are the identifiers assigned during protein prediction or translation. All three reports are retained without `--keep-tmp`.
 
 ### Temporary files
 
@@ -269,6 +274,22 @@ If `--keep-tmp` is used, the `tmp/` directory is kept. It contains renamed FASTA
 - Use `--confidence-threshold <value>` only when you want to override that default.
 - Lower-confidence calls are preserved in `classification` but are relabeled as `Unknown` in `classification_thresholded`.
 - `completeness_UNI56` is provided to help judge how complete the genome appears relative to the marker set used by the workflow.
+
+### Investigating UNI56 completeness
+
+UNI56 provides a simplified completeness estimate designed for rapid assessment within the symclatron workflow. The `completeness_UNI56` value is also a required input to the final lifestyle classifier. It is not intended to replace completeness estimates from more sophisticated tools such as CheckM or CheckM2, which should be used for dedicated genome quality assessment.
+
+`completeness_UNI56` is calculated as `100 × detected UNI56 markers / 56`, rounded to two decimal places. Multiple protein copies of a marker count only once. UNI56 searches use the gathering thresholds stored in the bundled HMM profiles.
+
+UNI56 and other completeness estimates are not directly interchangeable. Differences in estimation methods, marker sets, gene calls, and detection thresholds can produce different values for the same genome. When investigating a discrepancy, first confirm that the estimates refer to the same input assembly and consider how each method detects and interprets the available sequence evidence.
+
+To inspect the evidence behind the UNI56 estimate, check `extra_results/uni56_presence.tsv` for detected and missing markers, `extra_results/uni56_copy_number.tsv` for the number of detected copies of each marker, and `extra_results/uni56_hits.tsv` for the corresponding proteins, scores, and E-values. A missing marker means it was not detected under the search settings; it does not establish that the gene is biologically absent. Copy counts do not increase the completeness estimate: a marker with multiple detected copies still contributes only once.
+
+UNI56 markers are generally expected to occur in a single copy, but their copy number can vary among clades. Multiple detected copies may indicate contamination or mixed strains, but can also reflect genuine gene duplication, assembly artifacts, or fragmented gene predictions. The reported counts represent distinct detected protein records, not independently verified gene copies or a contamination percentage. Interpret them in the context of the genome's taxonomy and independent quality assessments; the [CheckM documentation](https://github.com/Ecogenomics/CheckM/wiki/Genome-Quality-Commands#qa) describes related considerations when interpreting duplicated markers.
+
+Users are responsible for appropriate quality assurance and quality control (QA/QC) of their genomes and metagenome-assembled genomes (MAGs), including independent completeness and contamination assessment before classification. Symclatron is not a genome QA/QC tool: it expects good-quality, appropriately curated input genomes to make reliable lifestyle predictions.
+
+For results from older versions, rerun with `--keep-tmp` to inspect `tmp/uni56_presence.tsv` and `tmp/uni56_hits_with_protein_names.tsv`. These older intermediate tables use internal genome and protein identifiers; the mappings are in `tmp/genomes_dict.json` and `tmp/renamed_genomes/genome_*_dict.json`.
 
 ## Citation
 

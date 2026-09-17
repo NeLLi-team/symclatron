@@ -45,7 +45,7 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.10.10"
+__version__ = "0.10.11"
 DEFAULT_CONFIDENCE_THRESHOLD = 0.725
 confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
 extra_results_dir: Optional[str] = None
@@ -1084,8 +1084,9 @@ def rename_all_proteins_in_fasta_files(tmp_genome_dir_path: str, savedir: str) -
     genome_file_paths = sorted(glob.glob(tmp_genome_dir_path + "/*.faa"))
     for each_genome in genome_file_paths:
         proteins_dict: Dict[str, str] = {}
-        genome_name = Path(each_genome).stem
-        renamed_path = each_genome.replace(".faa", "_renamed.faa")
+        genome_path = Path(each_genome)
+        genome_name = genome_path.stem
+        renamed_path = genome_path.with_name(f"{genome_name}_renamed.faa")
         protein_index = 0
 
         # Rename proteins and capture original headers in a single pass.
@@ -1099,13 +1100,13 @@ def rename_all_proteins_in_fasta_files(tmp_genome_dir_path: str, savedir: str) -
                 else:
                     outfile.write(line)
 
-        with open(f"{each_genome.split('.faa')[0]}_dict.json", "w", encoding="utf-8") as outfile:
+        with open(genome_path.with_name(f"{genome_name}_dict.json"), "w", encoding="utf-8") as outfile:
             json.dump(proteins_dict, outfile)
         # delete the original fasta file
         os.remove(each_genome)
 
         # rename the new fasta file with the original name
-        os.rename(f"{each_genome.replace('.faa', '_renamed.faa')}", each_genome)
+        os.rename(renamed_path, genome_path)
 
     logger = _get_logger()
     logger.info("Proteins renamed")
@@ -1719,13 +1720,61 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
 
 
 def count_uni56() -> None:
-    """Count the number of UNI56 markers found in each genome."""
+    """Count UNI56 markers and retain diagnostics using user-facing identifiers."""
     df_uni56 = pd.read_csv(tmp_dir_path + "/uni56_hits_all_models.tsv", sep="\t")
     df_uni56 = df_uni56.set_index("taxon_oid", drop=True)
-    df_uni56[df_uni56 > 0] = 1
+    df_uni56 = df_uni56.gt(0).astype(int)
+    marker_names = df_uni56.columns.tolist()
     df_uni56["total_UNI56"] = df_uni56.sum(axis=1)
     df_uni56["completeness_UNI56"] = (100 * (df_uni56["total_UNI56"] / 56)).round(2)
     df_uni56.to_csv(tmp_dir_path + "/uni56_presence.tsv", sep="\t", index=True)
+
+    with open(Path(tmp_dir_path) / "genomes_dict.json", encoding="utf-8") as handle:
+        genome_dict = json.load(handle)
+
+    presence = df_uni56.copy()
+    presence["missing_markers"] = presence[marker_names].apply(
+        lambda row: ";".join(row.index[row.eq(0)]), axis=1
+    )
+    presence = presence.rename(index=genome_dict)
+    presence_path = _get_extra_results_path("uni56_presence.tsv")
+    presence.to_csv(presence_path, sep="\t", index=True)
+
+    hits = pd.read_csv(
+        Path(tmp_dir_path) / "uni56_hits_with_protein_names.tsv", sep="\t"
+    )
+    # A protein can have multiple aligned domains for the same marker.
+    hits = hits.sort_values("score", ascending=False).drop_duplicates(
+        ["taxon_oid", "model", "protein_name"]
+    ).copy()
+
+    # Count distinct protein records before restoring potentially repeated input
+    # identifiers. Use the same positive-score criterion as marker presence.
+    copy_number = (
+        hits.loc[hits["score"].gt(0)]
+        .groupby(["taxon_oid", "model"])["protein_name"]
+        .nunique()
+        .unstack(fill_value=0)
+        .reindex(index=df_uni56.index, columns=marker_names, fill_value=0)
+        .astype(int)
+    )
+    copy_number_path = _get_extra_results_path("uni56_copy_number.tsv")
+    copy_number.rename(index=genome_dict).to_csv(copy_number_path, sep="\t", index=True)
+
+    for genome_id, rows in hits.groupby("taxon_oid").groups.items():
+        protein_dict_path = Path(tmp_dir_path) / "renamed_genomes" / f"{genome_id}_dict.json"
+        with open(protein_dict_path, encoding="utf-8") as handle:
+            protein_dict = json.load(handle)
+        hits.loc[rows, "protein_name"] = hits.loc[rows, "protein_name"].map(protein_dict)
+    hits["taxon_oid"] = hits["taxon_oid"].map(genome_dict)
+    hits = hits.sort_values(["taxon_oid", "model", "protein_name"])
+    hits_path = _get_extra_results_path("uni56_hits.tsv")
+    hits.to_csv(hits_path, sep="\t", index=False)
+
+    logger = _get_logger()
+    logger.info("UNI56 marker presence and missing markers saved to: %s", presence_path)
+    logger.info("UNI56 marker copy numbers saved to: %s", copy_number_path)
+    logger.info("UNI56 protein hits saved to: %s", hits_path)
 
 
 
