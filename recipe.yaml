@@ -1,14 +1,14 @@
 context:
   # Tracks the latest published PyPI sdist. Repository code can be ahead between releases.
-  version: 0.10.10
+  version: 0.10.11
 
 package:
   name: symclatron
   version: ${{ version }}
 
 source:
-- url: https://files.pythonhosted.org/packages/13/38/258acaa0b81c8c142cc46480a0c56a6a600d0ad2be044660ab79ee412701/symclatron-0.10.10.tar.gz
-  sha256: ff1aceb7db819c9d1977ae1042a0c49cdf5c491064051f5656825828d4cef711
+- url: https://files.pythonhosted.org/packages/e7/c1/818d9e8d6c58b210f3316a34963b4ec1e46a9d0f48b24f068c8a0a2cc9d7/symclatron-0.10.11.tar.gz
+  sha256: 8fe1dded3b9b2ccb3b62721488a27329d5ef5858f8009e23be4f3ec3950cd40f
 
 build:
   script:
