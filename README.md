@@ -295,9 +295,11 @@ For results from older versions, rerun with `--keep-tmp` to inspect `tmp/uni56_p
 
 If you use `symclatron` in your research, please cite:
 
-A genomic catalog of Earth’s bacterial and archaeal symbionts.
-Juan C. Villada, Yumary M. Vasquez, Gitta Szabo, Ewan Whittaker-Walker, Miguel F. Romero, Sarina Qin, Neha Varghese, Emiley A. Eloe-Fadrosh, Nikos C. Kyrpides, SymGs data consortium, Axel Visel, Tanja Woyke, Frederik Schulz
-bioRxiv 2025.05.29.656868; doi: https://doi.org/10.1101/2025.05.29.656868
+**A genomic catalog of Earth’s bacterial and archaeal symbionts.**
+
+Juan C. Villada, Yumary M. Vasquez, Gitta Szabó, Ewan Whittaker-Walker, Miguel F. Romero, Sarina Qin, Neha Varghese, Emiley A. Eloe-Fadrosh, Nikos C. Kyrpides, SymGs data consortium, Axel Visel, Tanja Woyke, Frederik Schulz.
+
+*Nature Biotechnology* (2026). Published 31 August 2026. DOI: [10.1038/s41587-026-03213-1](https://doi.org/10.1038/s41587-026-03213-1).
 
 ## Support
 
