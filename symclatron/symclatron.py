@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 # Standard library imports
-import glob
 import gzip
 import hashlib
 import itertools
@@ -14,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 import time
 import urllib.request
@@ -45,7 +45,7 @@ Lawrence Berkeley National Laboratory (LBNL)
 2025
 """
 
-__version__ = "0.10.11"
+__version__ = "0.10.12"
 DEFAULT_CONFIDENCE_THRESHOLD = 0.725
 confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
 extra_results_dir: Optional[str] = None
@@ -199,7 +199,9 @@ def _safe_extract_tar(archive_path: str, dest_dir: str) -> None:
             member_path = os.path.realpath(os.path.join(dest_root, member.name))
             if not (member_path == dest_root or member_path.startswith(dest_root + os.sep)):
                 raise RuntimeError(f"Unsafe path detected in tar archive: {member.name}")
-        tar.extractall(dest_root)  # noqa: S202 - path traversal protected above
+        # Validate links and each destination as it is extracted, including links
+        # introduced by earlier archive members. The preflight alone cannot do that.
+        tar.extractall(dest_root, filter="data")
 
 
 def _verify_sha256(path: str, expected: str) -> None:
@@ -236,7 +238,7 @@ def _parse_fasta(path: Path):
             yield header, "".join(chunks)
 
 
-def _detect_sequence_type(fasta_path: Path) -> str:
+def _detect_sequence_type(fasta_path: Path, input_kind: str = "auto") -> str:
     protein_letters = set("ABCDEFGHIKLMNPQRSTVWXYZ*")  # exclude J/O/U (rare)
     nucleotide_letters = set("ACGTRYKMSWBDHVN-.U")
 
@@ -258,7 +260,11 @@ def _detect_sequence_type(fasta_path: Path) -> str:
     if observed_protein == 0 and observed_nucleotide == 0:
         return "unknown"
 
-    if observed_protein > observed_nucleotide:
+    # Some valid peptides contain only letters shared with the nucleotide
+    # alphabet. Honor an explicit protein input kind when the evidence ties.
+    if observed_protein > observed_nucleotide or (
+        input_kind == "proteins" and observed_protein == observed_nucleotide
+    ):
         return "protein"
     return "nucleotide"
 
@@ -425,8 +431,9 @@ def _translate_genes_to_proteins(nucleotide_fasta: Path, output_faa: Path) -> Di
             if not prot:
                 continue
 
-            token = f"gene_{translated + 1}"
-            out_handle.write(f">{token} {header}\n")
+            # Keep the original CDS identifier for exported protein-hit reports.
+            # The later internal renaming step assigns unique protein IDs.
+            out_handle.write(f">{header}\n")
             out_handle.write(prot + "\n")
             translated += 1
 
@@ -461,7 +468,9 @@ def _predict_proteins_with_pyrodigal(contigs_fasta: Path, output_faa: Path) -> D
             genes_total += len(genes)
             genes.write_translations(
                 protein_handle,
-                sequence_id=header,
+                # Descriptions contain whitespace and would otherwise hide the
+                # per-gene suffix when FASTA identifiers are read downstream.
+                sequence_id=header.split()[0],
                 translation_table=11,
                 include_stop=False,
                 full_id=True,
@@ -848,22 +857,16 @@ def extract_data(
                     fg=typer.colors.BRIGHT_YELLOW,
                 )
             return
-        if not quiet:
-            typer.secho(
-                f"Removing existing data directory: {data_dir}",
-                fg=typer.colors.BRIGHT_YELLOW,
-            )
-        shutil.rmtree(data_dir)
 
-    # Create a temporary file path
-    tmp_download_path = _abs_path(os.path.join(script_dir, "symclatron_db.tar.gz"))
-    if not quiet:
-        typer.secho(
-            f"Temporary download path: {tmp_download_path}",
-            fg=typer.colors.BRIGHT_BLUE,
-        )
-
+    staging_dir: Optional[Path] = None
+    backup_data: Optional[Path] = None
+    installed = False
     try:
+        # Keep the current database available until a replacement has been
+        # downloaded, verified and extracted. Stage on the same filesystem so
+        # installing it only requires renaming directories.
+        staging_dir = Path(tempfile.mkdtemp(prefix=".symclatron-setup-", dir=script_dir))
+        tmp_download_path = str(staging_dir / "symclatron_db.tar.gz")
         used_url: Optional[str] = None
         last_error: Optional[Exception] = None
         for url in candidate_urls:
@@ -891,21 +894,39 @@ def extract_data(
         # Extract the archive
         if not quiet:
             typer.secho("Extracting data...", fg=typer.colors.BRIGHT_GREEN)
-        _safe_extract_tar(tmp_download_path, script_dir)
+        extracted_dir = staging_dir / "extracted"
+        extracted_dir.mkdir()
+        _safe_extract_tar(tmp_download_path, str(extracted_dir))
+        staged_data = next(
+            (
+                candidate for candidate in (
+                    extracted_dir / "data",
+                    extracted_dir / "symclatron_db" / "data",
+                )
+                if candidate.is_dir() and not candidate.is_symlink()
+            ),
+            None,
+        )
+        if staged_data is None or not any(staged_data.iterdir()):
+            raise RuntimeError("Database archive must contain a nonempty data/ or symclatron_db/data/ directory")
 
-        # Move the data directory to the correct location
-        if os.path.isdir(os.path.join(script_dir, "symclatron_db", "data")):
-            # If the data is inside a subdirectory, move it up
-            if not os.path.isdir(os.path.join(script_dir, "data")):
-                shutil.move(os.path.join(script_dir, "symclatron_db", "data"), script_dir)
-
-            # Clean up the symclatron_db directory if it exists
-            if os.path.isdir(os.path.join(script_dir, "symclatron_db")):
-                shutil.rmtree(os.path.join(script_dir, "symclatron_db"))
-
-        # Remove the downloaded archive
-        if os.path.exists(tmp_download_path):
-            os.remove(tmp_download_path)
+        # Retain the previous database until publishing succeeds, and restore it
+        # if the final rename fails. Moving a symlink preserves its external target.
+        if os.path.lexists(data_dir):
+            backup_data = staging_dir / "previous-data"
+            os.replace(data_dir, backup_data)
+        try:
+            os.replace(staged_data, data_dir)
+        except BaseException:
+            if backup_data is not None:
+                try:
+                    os.replace(backup_data, data_dir)
+                except OSError as exc:
+                    raise RuntimeError(
+                        f"Could not restore the previous database; it is preserved at {backup_data}"
+                    ) from exc
+            raise
+        installed = True
 
         if not quiet:
             typer.secho("[OK] Data setup complete\n", fg=typer.colors.BRIGHT_MAGENTA)
@@ -924,6 +945,12 @@ def extract_data(
             fg=typer.colors.BRIGHT_YELLOW,
         )
         raise typer.Exit(1)
+    finally:
+        # Do not delete the backup if restoration itself failed.
+        if staging_dir is not None and (
+            installed or backup_data is None or not os.path.lexists(backup_data)
+        ):
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 
@@ -1010,7 +1037,7 @@ def copy_genomes_to_tmp_dir(input_kind: str = "auto", input_ext: Optional[List[s
         genome_id = _derive_genome_id(input_path)
         output_faa = Path(tmp_genome_dir_path) / f"{genome_id}.faa"
 
-        seq_type = _detect_sequence_type(input_path)
+        seq_type = _detect_sequence_type(input_path, normalized_kind)
         if normalized_kind == "proteins" and seq_type != "protein":
             raise SystemExit(f"Expected protein FASTA but got nucleotide: {_abs_path(input_path)}")
         if normalized_kind in {"genes", "contigs"} and seq_type != "nucleotide":
@@ -1051,8 +1078,9 @@ def rename_genomes(tmp_genome_dir_path: str) -> str:
     Returns:
         str: Path to the JSON file containing the mapping of new to original genome names.
     """
-    genome_file_paths = sorted(glob.glob(tmp_genome_dir_path + "/*.faa"))
-    genome_names = [Path(x).stem for x in genome_file_paths]
+    genome_dir = Path(tmp_genome_dir_path)
+    genome_file_paths = sorted(genome_dir.glob("*.faa"))
+    genome_names = [path.stem for path in genome_file_paths]
     # the dictionary will have as keys the new simplified name of the genome and as values the original name
     # the simplied name will be genome_1, genome_2, etc
     genome_dict = {f"genome_{i+1}": genome_names[i] for i in range(len(genome_names))}
@@ -1061,12 +1089,15 @@ def rename_genomes(tmp_genome_dir_path: str) -> str:
     with open(genome_dict_path, "w") as outfile:
         json.dump(genome_dict, outfile)
 
-    # rename the faa fasta files with the new simplified names using the genome_dict
+    # Stage every file before assigning final names: input files may already be
+    # called genome_1.faa, genome_2.faa, etc.
     name_to_new = {original: new for new, original in genome_dict.items()}
-    for each_genome in genome_file_paths:
-        genome_name = Path(each_genome).stem
-        new_name = Path(tmp_genome_dir_path) / f"{name_to_new[genome_name]}.faa"
-        os.rename(each_genome, new_name)
+    with tempfile.TemporaryDirectory(prefix=".rename-", dir=genome_dir) as staging_dir:
+        staging_path = Path(staging_dir)
+        for genome_path in genome_file_paths:
+            genome_path.rename(staging_path / f"{name_to_new[genome_path.stem]}.faa")
+        for staged_path in staging_path.iterdir():
+            staged_path.rename(genome_dir / staged_path.name)
 
     logger = _get_logger()
     logger.info("Genomes renamed")
@@ -1081,7 +1112,7 @@ def rename_all_proteins_in_fasta_files(tmp_genome_dir_path: str, savedir: str) -
         tmp_genome_dir_path (str): Path to the temporary directory containing the genomes.
         savedir (str): Path to the output directory.
     """
-    genome_file_paths = sorted(glob.glob(tmp_genome_dir_path + "/*.faa"))
+    genome_file_paths = sorted(Path(tmp_genome_dir_path).glob("*.faa"))
     for each_genome in genome_file_paths:
         proteins_dict: Dict[str, str] = {}
         genome_path = Path(each_genome)
@@ -1121,13 +1152,17 @@ def merge_genomes(tmp_genomes_path: str) -> None:
     """
     logger = _get_logger()
     logger.info("Merging genomes")
-    genome_file_paths = glob.glob(f"{tmp_genomes_path}/*.faa")
+    genome_file_paths = sorted(Path(tmp_genomes_path).glob("*.faa"))
     output_file = f"{tmp_dir_path}/merged_genomes.faa"
     with open(output_file, "w") as outfile:
         for each_file in genome_file_paths:
             with open(each_file) as infile:
+                last_line = ""
                 for line in infile:
                     outfile.write(line)
+                    last_line = line
+                if last_line and not last_line.endswith("\n"):
+                    outfile.write("\n")
     logger.info("Fasta files merged at: %s", output_file)
 
 
@@ -1347,15 +1382,13 @@ def save_list_of_genomes(tmp_genomes_path: str) -> None:
     logger = _get_logger()
     logger.info("Saving list of genomes")
 
-    list_of_genome_files = glob.glob(f"{tmp_genomes_path}/genome_*.faa")
+    list_of_genome_files = sorted(Path(tmp_genomes_path).glob("genome_*.faa"))
 
     genomes_list_file_path = tmp_dir_path + "/genomes.list"
 
     with open(genomes_list_file_path, "w") as output_genomes_list_file:
         for each_element in list_of_genome_files:
-            output_genomes_list_file.write(
-                each_element.split("/")[-1].split(".faa")[0] + "\n"
-            )
+            output_genomes_list_file.write(each_element.stem + "\n")
 
     logger.info("Genomes list saved")
 
@@ -1366,11 +1399,12 @@ def hmmer_results_to_pandas_df() -> None:
     logger = _get_logger()
     logger.info("Generating matrix of highest scores from the hmmsearch output")
 
-    list_of_tblout_hmmsearch_output_files = glob.glob(
-        tmp_dir_path + "/*_hmmsearch.tblout"
+    list_of_tblout_hmmsearch_output_files = sorted(
+        Path(tmp_dir_path).glob("*_hmmsearch.tblout")
     )
 
     for tbloutfile in list_of_tblout_hmmsearch_output_files:
+        model_prefix = tbloutfile.name.removesuffix("_hmmsearch.tblout")
         try:
             raw_hits = pd.read_csv(
                 tbloutfile, header=None, sep=r"\s+", comment="#", usecols=[0, 2, 4, 5]
@@ -1380,7 +1414,7 @@ def hmmer_results_to_pandas_df() -> None:
 
         # list_of_features_names = []
         models_names = pd.read_csv(
-            tbloutfile.replace("_hmmsearch.tblout", "_models.list"),
+            tbloutfile.with_name(f"{model_prefix}_models.list"),
             sep="\t",
             header=None,
         )
@@ -1389,8 +1423,8 @@ def hmmer_results_to_pandas_df() -> None:
             tmp_dir_path + "/genomes.list", sep="\t", header=None
         )
 
-        df_hits_with_protein_names_loc = tbloutfile.replace(
-            "_hmmsearch.tblout", "_hits_with_protein_names.tsv"
+        df_hits_with_protein_names_loc = tbloutfile.with_name(
+            f"{model_prefix}_hits_with_protein_names.tsv"
         )
 
         global symclatron_union_hits_with_protein_names_loc
@@ -1478,7 +1512,7 @@ def hmmer_results_to_pandas_df() -> None:
         ]
         # Save output
         tblout_hmm_result.to_csv(
-            tbloutfile.replace("_hmmsearch.tblout", "_hits_all_models.tsv"),
+            tbloutfile.with_name(f"{model_prefix}_hits_all_models.tsv"),
             index=False,
             sep="\t",
         )
@@ -1525,6 +1559,53 @@ def split_hits_all_models_for_3_models() -> None:
 
 
 
+def _save_genome_report(df: pd.DataFrame, filename: str) -> None:
+    """Export an auxiliary table with original genome names, preserving input IDs."""
+    with open(Path(tmp_dir_path) / "genomes_dict.json", encoding="utf-8") as handle:
+        genome_dict = json.load(handle)
+    report = df.copy()
+    report["taxon_oid"] = report["taxon_oid"].replace(genome_dict)
+    report.to_csv(_get_extra_results_path(filename), sep="\t", index=False)
+
+
+def _restore_protein_identifiers(hits: pd.DataFrame) -> pd.DataFrame:
+    """Restore per-genome protein identifiers without changing the input table."""
+    restored = hits.copy()
+    # Internal names encode the record's position before renaming. Preserve it
+    # so repeated original FASTA identifiers remain distinguishable in reports.
+    restored["protein_record_index"] = (
+        restored["protein_name"].str.removeprefix("protein_").astype("int64")
+    )
+    for genome_id, rows in restored.groupby("taxon_oid").groups.items():
+        protein_dict_path = Path(tmp_dir_path) / "renamed_genomes" / f"{genome_id}_dict.json"
+        with open(protein_dict_path, encoding="utf-8") as handle:
+            protein_dict = json.load(handle)
+        restored.loc[rows, "protein_name"] = restored.loc[rows, "protein_name"].map(protein_dict)
+    return restored
+
+
+def save_feature_hits() -> None:
+    """Retain the proteins underlying classifier features after temporary cleanup."""
+    hits = pd.read_csv(
+        Path(tmp_dir_path) / "symclatron_2384_union_features_hits_with_protein_names.tsv",
+        sep="\t",
+    )
+    # Collapse repeated domains before restoring potentially duplicate FASTA IDs.
+    # Use the same full-sequence scores as the feature matrices, including ties
+    # and nonpositive scores from the permissive classifier HMM search.
+    hits = hits.sort_values("score", ascending=False).drop_duplicates(
+        ["taxon_oid", "model", "protein_name"]
+    ).copy()
+    best_scores = hits.groupby(["taxon_oid", "model"])["score"].transform("max")
+    hits["is_best_hit"] = hits["score"].eq(best_scores)
+    hits = _restore_protein_identifiers(hits)
+    hits = hits.sort_values(["taxon_oid", "model", "protein_name"])
+    _save_genome_report(hits, "feature_hits.tsv")
+    _get_logger().info(
+        "Classifier feature protein hits saved to: %s", _get_extra_results_path("feature_hits.tsv")
+    )
+
+
 def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = None) -> None:
     """Classify genomes using the three XGBoost models.
 
@@ -1541,11 +1622,7 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
             f"{tmp_dir_path}/{each_model}_hits_all_models.tsv",
             sep="\t"
         )
-        all_tblout_df.to_csv(
-            _get_extra_results_path(f"bitscore_{each_model}.tsv"),
-            sep="\t",
-            index=False,
-        )
+        _save_genome_report(all_tblout_df, f"bitscore_{each_model}.tsv")
 
         features_gt0 = all_tblout_df.drop(["taxon_oid"], axis=1).apply(
             lambda x: x[x > 0].count(), axis=1
@@ -1608,11 +1685,7 @@ def classify_genomes_internal(resource_monitor: Optional["ResourceMonitor"] = No
             shap_df = shap_df[
                 ["taxon_oid"] + [col for col in shap_df.columns if col != "taxon_oid"]
             ]
-            shap_df.to_csv(
-                _get_extra_results_path(f"shap_{each_model}.tsv"),
-                sep="\t",
-                index=False,
-            )
+            _save_genome_report(shap_df, f"shap_{each_model}.tsv")
 
         elif each_model == "symcla":
             class_labels = ["proba_fl", "proba_ha", "proba_in"]
@@ -1703,11 +1776,7 @@ def compute_feature_contribution(resource_monitor: Optional["ResourceMonitor"] =
         })
         shap_melt = pd.concat([shap_melt, temp_df])
 
-    shap_melt.to_csv(
-        _get_extra_results_path(f"shap_melt_{each_model}.tsv"),
-        sep="\t",
-        index=False,
-    )
+    _save_genome_report(shap_melt, f"shap_melt_{each_model}.tsv")
 
     end_time = time.time()
     duration = end_time - start_time
@@ -1761,11 +1830,7 @@ def count_uni56() -> None:
     copy_number_path = _get_extra_results_path("uni56_copy_number.tsv")
     copy_number.rename(index=genome_dict).to_csv(copy_number_path, sep="\t", index=True)
 
-    for genome_id, rows in hits.groupby("taxon_oid").groups.items():
-        protein_dict_path = Path(tmp_dir_path) / "renamed_genomes" / f"{genome_id}_dict.json"
-        with open(protein_dict_path, encoding="utf-8") as handle:
-            protein_dict = json.load(handle)
-        hits.loc[rows, "protein_name"] = hits.loc[rows, "protein_name"].map(protein_dict)
+    hits = _restore_protein_identifiers(hits)
     hits["taxon_oid"] = hits["taxon_oid"].map(genome_dict)
     hits = hits.sort_values(["taxon_oid", "model", "protein_name"])
     hits_path = _get_extra_results_path("uni56_hits.tsv")
@@ -1829,7 +1894,7 @@ def calculate_weighted_distances(resource_monitor: Optional["ResourceMonitor"] =
 
         # Extract matrix from test and train dataframes
         train_matrix = train_df[feature_cols].values  # shape: (n_train, n_features)
-        test_matrix = test_df[test_df.columns.intersection(feature_cols)].values  # shape: (n_test, n_features)
+        test_matrix = test_df[feature_cols].values  # same feature order as training rows and weights
 
         # Apply weights to the feature matrices
         train_tilde = train_matrix * weight_sqrt  # weighted training features
@@ -2214,7 +2279,7 @@ def validate_input(
                 invalid_files.append(_abs_path(fasta_path))
                 continue
 
-        seq_type = _detect_sequence_type(fasta_path)
+        seq_type = _detect_sequence_type(fasta_path, normalized_kind)
         if seq_type == "unknown":
             invalid_files.append(_abs_path(fasta_path))
             continue
@@ -2465,6 +2530,25 @@ def classify(
     save_dir = _abs_path(save_dir)
     genome_dir = _abs_path(genome_dir)
 
+    # This workspace is removed on reruns and during cleanup. Protect input
+    # files, symlink targets, and symlinks needed to reach an external input.
+    work_dir = Path(save_dir) / "tmp"
+    resolved_work_dir = work_dir.resolve()
+    input_paths = [Path(genome_dir), *_list_input_fasta_files(genome_dir, input_ext)]
+    if any(
+        path.is_relative_to(work_dir)
+        or path.resolve().is_relative_to(resolved_work_dir)
+        or (path.parent.resolve() / path.name).is_relative_to(resolved_work_dir)
+        for path in input_paths
+    ):
+        typer.secho(
+            "Error: Input genomes are inside the output directory's temporary workspace. "
+            "Choose a different --output-dir to preserve the input files.",
+            fg=typer.colors.BRIGHT_RED,
+            err=True,
+        )
+        raise typer.Exit(1)
+
     global savedir
     savedir = save_dir
 
@@ -2546,6 +2630,8 @@ def classify(
     save_list_of_genomes(tmp_genomes_path=tmp_genomes_path)
 
     hmmer_results_to_pandas_df()
+
+    save_feature_hits()
 
     logger.info("Splitting features for different models")
     split_hits_all_models_for_3_models()

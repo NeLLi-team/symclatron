@@ -130,7 +130,10 @@ class Uni56DiagnosticsTests(unittest.TestCase):
         self.assertEqual(presence.loc[0, "missing_markers"], ";".join(self.markers))
         hits = pd.read_csv(self.extra / "uni56_hits.tsv", sep="\t")
         self.assertTrue(hits.empty)
-        self.assertEqual(list(hits.columns), ["taxon_oid", "model", "evalue", "score", "protein_name"])
+        self.assertEqual(
+            list(hits.columns),
+            ["taxon_oid", "model", "evalue", "score", "protein_name", "protein_record_index"],
+        )
         copies = pd.read_csv(self.extra / "uni56_copy_number.tsv", sep="\t").set_index("taxon_oid")
         self.assertEqual(list(copies.columns), self.markers)
         self.assertTrue(copies.loc["empty_bin"].eq(0).all())
@@ -145,6 +148,7 @@ class Uni56DiagnosticsTests(unittest.TestCase):
         self.assertEqual(copies.loc[0, self.markers[0]], 2)
         hits = pd.read_csv(self.extra / "uni56_hits.tsv", sep="\t")
         self.assertEqual(hits.protein_name.tolist(), ["same_header", "same_header"])
+        self.assertEqual(set(hits.protein_record_index), {1, 2})
 
     def test_single_copy_and_nonpositive_hits_match_presence(self):
         self.prepare_hits({"genome_1": "bin"}, {"genome_1": self.markers[:1]})

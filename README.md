@@ -10,6 +10,8 @@
 
 It accepts protein FASTA directly, or nucleotide FASTA with automatic conversion to proteins before classification.
 
+Version **0.10.12** adds protein evidence reports and fixes input handling and database setup. See the [changelog](CHANGELOG.md).
+
 ## What symclatron implements
 
 For each genome, `symclatron` currently performs the following workflow:
@@ -86,7 +88,7 @@ symclatron setup
 
 Useful setup options:
 
-- `--force`, `-f`: remove any existing bundled data and download again
+- `--force`, `-f`: download a replacement bundle, preserving existing data if setup fails
 - `--data-url`: override the default GitHub Release URL
 - `--data-sha256`: verify the downloaded archive against a SHA256 digest
 - `--quiet`, `-q`: suppress routine progress messages
@@ -251,17 +253,23 @@ Exact class labels written by the current implementation are:
 
 ### Auxiliary TSV outputs in `extra_results/`
 
-- `extra_results/bitscore_symcla.tsv`
-- `extra_results/bitscore_symreg.tsv`
-- `extra_results/bitscore_hostcla.tsv`
-- `extra_results/shap_symreg.tsv`
-- `extra_results/feature_contribution_symreg.tsv`
-- `extra_results/shap_melt_symreg.tsv`
-- `extra_results/uni56_presence.tsv`: one row per genome, with a `1` (detected) or `0` (not detected) for each UNI56 marker, `total_UNI56`, `completeness_UNI56`, and a semicolon-separated `missing_markers` list
-- `extra_results/uni56_copy_number.tsv`: one row per genome, with the number of distinct detected protein records for each UNI56 marker; undetected markers have a count of `0`, and repeated domains within the same protein count only once
-- `extra_results/uni56_hits.tsv`: UNI56 hits with genome identifiers (`taxon_oid`), marker names (`model`), protein identifiers (`protein_name`), E-values (`evalue`), and bit scores (`score`); repeated domains for the same protein and marker are collapsed to one row
+These reports persist without `--keep-tmp` and use the original genome identifiers in `taxon_oid`.
 
-The UNI56 reports use the same genome identifiers as `symclatron_results.tsv`. Protein identifiers are restored from the input protein FASTA headers; for nucleotide inputs, they are the identifiers assigned during protein prediction or translation. All three reports are retained without `--keep-tmp`.
+| File | Contents |
+| --- | --- |
+| `bitscore_symcla.tsv`, `bitscore_symreg.tsv`, `bitscore_hostcla.tsv` | Per-genome HMM feature scores used by each submodel |
+| `shap_symreg.tsv`, `shap_melt_symreg.tsv` | Contributions to the `symreg` score, in wide and long formats |
+| `feature_contribution_symreg.tsv` | Mean absolute SHAP value per feature across genomes |
+| `feature_hits.tsv` | Proteins corresponding to classifier features, including highest-score indicators |
+| `uni56_presence.tsv` | Each marker's presence (1/0), `total_UNI56`, `completeness_UNI56`, and semicolon-separated `missing_markers` |
+| `uni56_copy_number.tsv` | Distinct protein records per UNI56 marker, including zeros |
+| `uni56_hits.tsv` | Proteins corresponding to detected UNI56 markers |
+
+Both hit reports contain `model`, `protein_name`, full-sequence `evalue` and `score`, and `protein_record_index`. Protein names retain the original FASTA identifier before the first whitespace. Translated CDS retain their CDS IDs; predicted proteins use the contig ID with a gene-number suffix. The 1-based record index distinguishes duplicate identifiers within each genome's protein FASTA; for nucleotide inputs, it refers to the translated or predicted records. Repeated domains within one protein count once per marker.
+
+To trace a feature to proteins, join on `taxon_oid` and its identifier (`model` in the hit report, `feature` in the long SHAP table, or the column name in wide tables). In `feature_hits.tsv`, `is_best_hit=True` marks all proteins tied for the highest recorded score used in the feature matrix. Scores retain the matrix's one-decimal precision. Classifier searches use a permissive E-value threshold of 1000; these hits alone do not establish protein function.
+
+SHAP explains genome-level features contributing to the **`symreg` score**, not individual proteins or the final neural-network classification. A feature's absence can contribute to this score even when it has no protein-hit rows.
 
 ### Temporary files
 
