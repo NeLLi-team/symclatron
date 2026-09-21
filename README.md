@@ -12,7 +12,7 @@ It accepts protein FASTA directly, or nucleotide FASTA with automatic conversion
 
 Version **0.10.12** adds protein evidence reports and fixes input handling and database setup. See the [changelog](CHANGELOG.md).
 
-## What symclatron implements
+## `symclatron` workflow
 
 For each genome, `symclatron` currently performs the following workflow:
 
